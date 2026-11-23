@@ -19,7 +19,7 @@ The package name is **`dsh-config-sync-plugin`** (the `dsh-config-sync` name on 
 
 | Way | Command / entry | Notes |
 |---|---|---|
-| npm | `npm i dsh-config-sync-plugin` | Use it as a dependency, or add `"dsh-config-sync-plugin": "^0.3.85"` to the profile's `package.json` and run `pnpm i`. The name matches the `cordis.patch.yml` insert name and the install folder `dsh-config-sync-plugin-<ver>` |
+| npm | `npm i dsh-config-sync-plugin` | Use it as a dependency, or add `"dsh-config-sync-plugin": "^0.3.86"` to the profile's `package.json` and run `pnpm i`. The name matches the `cordis.patch.yml` insert name and the install folder `dsh-config-sync-plugin-<ver>` |
 | Marketplace | client → Plugins → Discover → “Config Sync” | Installs from the git commit registered in `market-index.json` |
 | Offline tgz | `releases\dsh-config-sync-plugin-<ver>.tgz` | GitHub Release asset for air-gapped machines; the panel's Update button downloads the same file |
 
@@ -252,6 +252,14 @@ Two display fixes on top of 0.3.77:
 
 1. **Jump order matches section order**: the quick-jump tabs now follow the exact render order of the sections (Overview / Sync conflicts [when present] / Local paths [when expanded] / Targets / Automation & updates / Scripts / Restore / Content / Plugin data / Workspace visibility / Feedback). The two conditional sections (conflicts, local paths) appear in the tabs only when their cards are shown.
 2. **Scroll lands below the title**: the sticky title bar now uses an opaque background (same fill as panel cards), so content no longer shows through it; jumping to a tab sets the scroll offset from the title bar's actual height, so the target section lands fully below the title instead of being covered.
+
+### Local data moved into To-do, grouped by sync content, sessions shown by name (0.3.86)
+
+The "Local data" row in the "Local repo" card moved into "Overview → To-do", with its presentation reorganised:
+
+1. **Location**: the old "Local data" line at the bottom of the "Local repo" card is gone. The To-do card now shows even when nothing else is wrong — it starts with local data (last sync time / pending count / mode) and then the existing to-do suggestions. "How much is still unsynced" and "what to do about it" sit together.
+2. **Grouped by sync content**: pending files are counted by the same twelve groups as "Sync content" — Conversations / Skills / Plugin data / Memory data / Local profile / Global prompts / Agent presets / Plugin settings & workflows / Workspace files / Extra paths, etc. Each group is a chip with a count, sorted by count descending; no more bare single total.
+3. **Sessions shown by name**: in the "Recently changed" sample, session files show the projected session title (matching the DSH panel, e.g. "列出工作区下的文件夹") instead of a `session-xxx/session.v4.jsonl.zstd` directory id; non-session items with no title still show their parent directory / file name.
 
 ### Workspace visibility card: one Edit button for the whole card, sessions paired with their toggles (0.3.84 / 0.3.85)
 
@@ -669,6 +677,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-23 | 0.3.86 | Moved "Local data" into Overview / To-do, grouped pending files by the twelve sync-content groups, and show session names instead of session ids in the sample |
 | 2026-11-23 | 0.3.85 | Removed the tinted banner above the workspace list in edit mode; edit state is read from the Edit/Done button in the header |
 | 2026-11-23 | 0.3.84 | Workspace visibility card uses one Edit button for the whole card; each session row carries its own toggle with a background and divider, hidden names struck through |
 | 2026-11-23 | 0.3.83 | Workspace visibility card also collapses blank sessions and Mnemon idle-review parents; default view on this machine 99 → 10 |
