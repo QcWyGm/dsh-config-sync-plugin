@@ -1688,8 +1688,8 @@ console.log('== 配置同步页面 5 点调整 ==')
     && cliSrc.includes('onClick: () => setEditing(v => !v)')
     && cliSrc.includes('changeWorkspace(w.workspaceId, e.target.value)')
     && cliSrc.includes('changeSession(s.id, !s.hidden)')
-    // 编辑态有明显的说明条与退出按钮
-    && cliSrc.includes("M('编辑中', 'Editing')"), 'client.js 编辑态')
+    // 编辑态只靠顶部按钮本身表达状态，不再额外插入强调色说明条
+    && !cliSrc.includes('editBanner') && !cliSrc.includes("M('编辑中', 'Editing')"), 'client.js 编辑态')
   // 3) 点工作区整行即展开，不再单独展开按钮
   check('点工作区即展开（整行 onClick，无独立展开按钮）',
     cliSrc.includes("onClick: () => setExpanded(e => ({ ...e, [w.workspaceId]: !open }))")

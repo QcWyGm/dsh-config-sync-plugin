@@ -1670,26 +1670,6 @@ window.__ModuleLoader__.load({
       const archived = wss.filter(w => w.state === 'archive').length
       const agentHidden = Number(data.agentHidden || 0)
       const blankHidden = Number(data.blankHidden || 0)
-      // 编辑态用一条明显的强调色说明条，让「现在可改」这件事一眼可见。
-      const editBanner = editing
-        ? h('div', {
-          style: {
-            display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
-            padding: '7px 10px', borderRadius: '8px',
-            background: 'var(--dsw-alias-state-warn-secondary, transparent)',
-            color: 'var(--dsw-alias-label-primary)',
-            fontSize: '12px', lineHeight: '18px',
-          },
-        },
-          h('span', { style: { fontWeight: 600 } }, M('编辑中', 'Editing')),
-          h('span', { style: { flex: 1, minWidth: '160px' } },
-            M('现在可以改工作区三态和每条会话的显示/隐藏；点「完成」退出编辑。', 'You can change workspace states and toggle each session now; click Done to finish.')),
-          h('button', {
-            type: 'button', style: { ...S.btn, fontWeight: 600 }, disabled: busy,
-            onClick: () => setEditing(false),
-          }, M('完成', 'Done')),
-        )
-        : null
       return h('div', { style: S.card },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           h('div', { style: S.cardTitle }, M('工作区显示状态', 'Workspace visibility')),
@@ -1731,7 +1711,6 @@ window.__ModuleLoader__.load({
           }, editing ? M('完成', 'Done') : M('修改', 'Edit')),
           h('button', { type: 'button', style: S.btn, disabled: busy, onClick: load }, busy ? M('刷新中…', 'Refreshing…') : M('刷新', 'Refresh')),
         ),
-        editBanner,
         msg ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-success-primary, #1a7f37)' } }, msg) : null,
         err ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-error-primary)' } }, err) : null,
         h('div', { style: S.footnote },

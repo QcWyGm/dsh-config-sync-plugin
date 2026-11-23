@@ -1,10 +1,10 @@
 {
-  "version": "0.3.84",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.84/dsh-config-sync-plugin-0.3.84.tgz",
-  "tgzBytes": 406241,
-  "sha256":"4b6a17ca6b7e0b4a511110a2f2f51e23d64d1b9ecdb28ecbd9761511cb5486d1",
+  "version": "0.3.85",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.85/dsh-config-sync-plugin-0.3.85.tgz",
+  "tgzBytes": 406030,
+  "sha256":"cc01d3ba9b3447256ba0ddc3e7541609e9a96956459ae76fbfb4e6c2a4f06b5a",
   "releasedAt": "2026-11-23",
-  "notes": "「工作区显示」卡片改成整卡一个「修改」按钮：点它进入编辑态，所有工作区三态与会话显隐一起解锁，再点「完成」退出；不再每个工作区各带一个按钮。同时把会话与按钮的对应关系做实：编辑态下每条会话占一行、整行加底色并带分隔线，开关就贴在该行右侧，按钮文案与颜色区分「隐藏/显示」，隐藏的会话名加删除线。",
-  "notesEn": "The \"Workspace visibility\" card now has a single Edit button for the whole card: click it to unlock every workspace state and every session toggle, then click Done to leave. The per-workspace buttons are gone. Session/button pairing is also clearer — in edit mode each session gets its own row with a background and a divider, the toggle sits at the end of that row, and the button word plus colour tells you Hide vs Show; hidden sessions get a strikethrough name.",
+  "notes": "去掉「工作区显示」卡片编辑态那条强调色说明条：编辑与否只看标题行那个按钮（「修改」/「完成」），不再多插一行黄底提示。其余不变——整卡一个按钮、会话行自带开关与底色分隔线。",
+  "notesEn": "Removed the highlighted banner that appeared above the workspace list in edit mode. Whether you are editing is now read from the single Edit/Done button in the card header; no extra tinted row is inserted. Everything else stays: one button for the whole card, and each session row carries its own toggle with a background and divider.",
   "minClient": "0.2.2-rc.2"
 }
