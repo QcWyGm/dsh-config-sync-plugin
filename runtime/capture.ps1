@@ -921,10 +921,29 @@ if ($PackLocalPlugins) {
     $p = Join-Path $linkPath 'package.json'
     if (Test-Path -LiteralPath $p) { $ver = (Get-Content -LiteralPath $p -Raw -Encoding utf8 | ConvertFrom-Json).version }
     Ok ("已打包 " + $dirName + "（version " + $ver + "，{0:N1} MB）" -f ((Get-Item -LiteralPath $zipPath).Length / 1MB))
-    # 路径里若有版本号，和 package.json 的 version 对不上就提醒改名
-    if ($dirName -match '([0-9]+\.[0-9]+\.[0-9]+)$' -and $ver -ne $Matches[1]) {
-      Warn "目录名版本($($Matches[1])) 与插件实际版本($ver) 不一致，建议核对是否换了新版本"
-    }
+    # 打包后强校验：归档内 package.json 必须在 dirName 第一层，其 version 必须与目录名版本号一致；不满足就删掉坏归档，避免同步到本机后解出嵌套旧目录
+    try {
+      Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+      $z = [IO.Compression.ZipFile]::OpenRead($zipPath)
+      $badZip = $false
+      try {
+        $pe = $z.Entries | Where-Object { $_.FullName -match ('^' + [regex]::Escape($dirName) + '[\\/]package\.json$') } | Select-Object -First 1
+        if (-not $pe) {
+          Warn ("打包校验失败：归档里缺 " + $dirName + " 顶层 package.json（可能多套了一层旧目录），删除坏归档")
+          $badZip = $true
+        } else {
+          $sr = New-Object IO.StreamReader($pe.Open())
+          try { $iv = [string](($sr.ReadToEnd()) | ConvertFrom-Json).version } finally { $sr.Dispose() }
+          if ($dirName -match '([0-9]+\.[0-9]+\.[0-9]+)$' -and $iv -ne $Matches[1]) {
+            Warn ("打包校验失败：目录名版本(" + $Matches[1] + ") 与归档内 version(" + $iv + ") 不一致，删除坏归档")
+            $badZip = $true
+          } else {
+            Ok ("打包校验通过：" + $dirName + "（version " + $iv + "，顶层目录名一致）")
+          }
+        }
+      } finally { try { $z.Dispose() } catch {} }
+      if ($badZip) { Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue }
+    } catch { Warn ("无法校验归档结构：" + $_.Exception.Message + "，请人工核对 zip 内顶层目录名") }
   }
 }
 

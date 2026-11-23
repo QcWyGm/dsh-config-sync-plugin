@@ -1,9 +1,10 @@
 {
-  "version": "0.3.79",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.79/dsh-config-sync-plugin-0.3.79.tgz",
-  "tgzBytes": 397346,
-  "sha256": "24199613ea51a3d6600cc19ccb55ba83bf45507bd009963a3f6aa78ca3494b6c",
-  "releasedAt": "2026-11-21",
-  "notes": "面板改为两段式布局：页头（标题、徽标、元信息、区标签）整体移出滚动区，固定在面板顶部；下方另起独立滚动区，只装提示条与各分区卡片。滚动内容在结构上无法再穿到标题区或标题上方，区标签跳转落点固定为内容区顶部 +8px，不再按页头高度动态计算，页头换行、条件分区出现或消失都不影响落点。",
-  "notesEn": "The panel is now a two-part layout: the header (title, badges, meta line, section tabs) sits outside the scroll area, pinned at the top of the panel, and a separate scrolling region below holds the notices and every section card. Content can no longer reach the header area or above it, and section jumps use a fixed offset of 8px from the top of the scrolling region instead of the header height, so header wrapping or conditional sections no longer move the landing point."
+  "version": "0.3.80",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.80/dsh-config-sync-plugin-0.3.80.tgz",
+  "tgzBytes": 398649,
+  "sha256": "0adacd49b5560265b26d392a855fbb7117102299d1fe1962d64177a1abd42a51",
+  "releasedAt": "2026-11-23",
+  "notes": "修复跨机同步把本机已装新版插件降级覆盖、导致 link 变 0.0.0 / bundle 自检失败 / 拉取回滚的问题：版本比对改为语义化只升不降；capture 打包后强校验归档顶层目录名与 version，异常归档直接删除。同时重打包配置仓库中损坏的归档。",
+  "notesEn": "Fix cross-machine sync downgrading the installed plugin (link -> 0.0.0, bundle resolution failure, pull rollback): version comparison is now semantic upgrade-only; capture validates archive top-level folder and version after packing and deletes bad archives. The corrupted config-repo archive was also repacked.",
+  "minClient": "0.2.2-rc.2"
 }

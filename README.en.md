@@ -19,7 +19,7 @@ The package name is **`dsh-config-sync-plugin`** (the `dsh-config-sync` name on 
 
 | Way | Command / entry | Notes |
 |---|---|---|
-| npm | `npm i dsh-config-sync-plugin` | Use it as a dependency, or add `"dsh-config-sync-plugin": "^0.3.79"` to the profile's `package.json` and run `pnpm i`. The name matches the `cordis.patch.yml` insert name and the install folder `dsh-config-sync-plugin-<ver>` |
+| npm | `npm i dsh-config-sync-plugin` | Use it as a dependency, or add `"dsh-config-sync-plugin": "^0.3.80"` to the profile's `package.json` and run `pnpm i`. The name matches the `cordis.patch.yml` insert name and the install folder `dsh-config-sync-plugin-<ver>` |
 | Marketplace | client → Plugins → Discover → “Config Sync” | Installs from the git commit registered in `market-index.json` |
 | Offline tgz | `releases\dsh-config-sync-plugin-<ver>.tgz` | GitHub Release asset for air-gapped machines; the panel's Update button downloads the same file |
 
@@ -252,6 +252,18 @@ Two display fixes on top of 0.3.77:
 
 1. **Jump order matches section order**: the quick-jump tabs now follow the exact render order of the sections (Overview / Sync conflicts [when present] / Local paths [when expanded] / Targets / Automation & updates / Scripts / Restore / Content / Plugin data / Workspace visibility / Feedback). The two conditional sections (conflicts, local paths) appear in the tabs only when their cards are shown.
 2. **Scroll lands below the title**: the sticky title bar now uses an opaque background (same fill as panel cards), so content no longer shows through it; jumping to a tab sets the scroll offset from the title bar's actual height, so the target section lands fully below the title instead of being covered.
+
+### Fix cross-machine sync downgrading the installed plugin and rolling back pulls (0.3.80)
+
+Fixes an issue where pulling on another machine replaced a newer locally installed plugin with an older archive from the config repo, turning the link into 0.0.0, failing bundle resolution, and rolling the pull back.
+
+| Problem | Fix |
+|---|---|
+| An older archive was still deployed because versions merely differed | Version comparison is now semantic upgrade-only: the archive is deployed only when its version is higher than the installed one |
+| Archive top-level folder mismatched the file name (e.g. a 0.3.70 package wrapping a 0.3.56 folder), producing nested folders and a broken link | capture now validates the archive top-level folder and version after packing; bad archives are deleted with a warning instead of being synced |
+| Stale plugin keys caused repeated plugin-missing notices | Removed invalid legacy keys from localPluginMap and cleared stale notices |
+
+The corrupted archive in the config repo was also repacked with correct 0.3.79 content.
 
 ### The panel is now a fixed header plus an independently scrolling body (0.3.79)
 

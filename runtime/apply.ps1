@@ -900,6 +900,8 @@ $localPluginMap = [ordered]@{
   'dsh-our-free-model-2.8.0'      = 'dsh-our-free-model'
   'dsh-purge-1.4.0'               = 'dsh-purge'
   'dsh-config-sync-plugin-0.3.69' = 'dsh-config-sync-plugin'
+  'dsh-config-sync-plugin-0.3.80' = 'dsh-config-sync-plugin'
+  'dsh-config-sync-plugin-0.3.79' = 'dsh-config-sync-plugin'
   'dsh-config-sync-plugin-0.3.78' = 'dsh-config-sync-plugin'
   'dsh-config-sync-plugin-0.3.77' = 'dsh-config-sync-plugin'
   'dsh-config-sync-plugin-0.3.76' = 'dsh-config-sync-plugin'
@@ -919,7 +921,6 @@ $localPluginMap = [ordered]@{
   'dsh-config-sync-plugin-0.3.58' = 'dsh-config-sync-plugin'
   'dsh-config-sync-plugin-0.3.57' = 'dsh-config-sync-plugin'
   'dsh-config-sync-plugin-0.3.56' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-0.1.0'         = 'dsh-config-sync'
 }
 foreach ($dirName in $localPluginMap.Keys) {
   $pattern = 'link:[^"]*' + [regex]::Escape($dirName)
@@ -1245,6 +1246,15 @@ if (-not (Test-SyncGroupEnabled $Scope 'extra')) {
 
 # 读归档里的插件版本：tgz 里是 package/package.json，zip 里是 <目录名>/package.json 或根 package.json。
 # 读不出来返回 $null，调用方回退到 mtime 判据（不因为读不到就盲目重铺）。
+function Compare-PluginVersion([string]$a, [string]$b) {
+  $pa = $null; $pb = $null
+  if ($a -match '^v?(\d+)\.(\d+)\.(\d+)') { $pa = @([int]$matches[1], [int]$matches[2], [int]$matches[3]) }
+  if ($b -match '^v?(\d+)\.(\d+)\.(\d+)') { $pb = @([int]$matches[1], [int]$matches[2], [int]$matches[3]) }
+  if ((-not $pa) -or (-not $pb)) { return $null }
+  for ($i = 0; $i -lt 3; $i++) { if ($pa[$i] -gt $pb[$i]) { return 1 }; if ($pa[$i] -lt $pb[$i]) { return -1 } }
+  return 0
+}
+
 function Get-ArchivePluginVersion([string]$archPath, [string]$dirName) {
   try {
     if ($archPath -like '*.tgz' -or $archPath -like '*.tar.gz') {
@@ -1310,7 +1320,8 @@ foreach ($dirName in $localPluginMap.Keys) {
     }
     $hasNewVersion = $false
     if ((Test-Path -LiteralPath $arch) -and $archVer -and $depVer) {
-      $hasNewVersion = ($archVer -ne $depVer)
+      $cmpVer = Compare-PluginVersion $archVer $depVer
+      if ($null -ne $cmpVer) { $hasNewVersion = ($cmpVer -gt 0) } else { $hasNewVersion = ($archVer -ne $depVer) }
     } elseif (Test-Path -LiteralPath $arch) {
       # 读不到版本（老归档、结构异常）时退回 mtime，但要求比已部署目录新 10 秒以上，避免每轮误判
       $archTime = (Get-Item -LiteralPath $arch).LastWriteTime
