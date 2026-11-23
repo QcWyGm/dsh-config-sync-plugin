@@ -713,21 +713,6 @@ window.__ModuleLoader__.load({
                 'The local repo has no content yet: Pull fetches the whole repo into this path (git init + fetch + checkout). Push is disabled until then.',
               ))
           : null,
-        h(Kv, { k: M('本机数据', 'Local data'), v: (() => {
-          const local = props.data && props.data.local
-          if (!local || !local.known) return M('还没同步过', 'Never synced yet')
-          const when = local.lastSyncAt ? new Date(local.lastSyncAt).toLocaleString(localeNow(), { hour12: false }) : '?'
-          const tail = local.pending > 0
-            ? M(
-              `有 ${local.pending} 个文件待推送${local.sample && local.sample.length ? `（如 ${local.sample.join('、')}）` : ''}`,
-              `${local.pending} file(s) to push${local.sample && local.sample.length ? ` (e.g. ${local.sample.join(', ')})` : ''}`,
-            )
-            : M('没有新写入', 'nothing new')
-          return M(
-            `${tail} · 上次同步 ${when}${local.mode ? `（${local.mode}）` : ''}`,
-            `${tail} · last sync ${when}${local.mode ? ` (${local.mode})` : ''}`,
-          )
-        })() }),
         h('div', { style: S.footnote }, M(
           '路径只存本机设置文件（~\\.dsh\\dsh-config-sync.json），不进仓库，各机器各配各的。',
           'The path lives only in the local settings file (~\\.dsh\\dsh-config-sync.json), never in the repo.',
@@ -2626,12 +2611,39 @@ window.__ModuleLoader__.load({
           return local.pending > 0 ? M(`${base}（+${local.pending}）`, `${base} (+${local.pending})`) : base
         })(), data && data.local && data.local.pending > 0 ? 'warn' : 'ok'),
       )
+      // 本机数据（原「本机仓库」卡里的一行）挪进待办：按「同步内容」分组列出待推送项，会话显示会话名
+      const localBlock = data && data.local && data.local.known ? (() => {
+        const local = data.local
+        const when = local.lastSyncAt ? new Date(local.lastSyncAt).toLocaleString(localeNow(), { hour12: false }) : '?'
+        const groups = Array.isArray(local.groups) ? local.groups : []
+        const head = h('div', { style: { ...S.cardTitle, marginBottom: '4px' } }, M('本机数据', 'Local data'))
+        const meta = h('div', { style: S.footnote }, M(
+          `上次同步 ${when} · ${local.pending > 0 ? `有 ${local.pending} 个文件待推送` : '没有新写入'}${local.mode ? `（${local.mode}）` : ''}`,
+          `Last sync ${when} · ${local.pending > 0 ? `${local.pending} file(s) to push` : 'nothing new'}${local.mode ? ` (${local.mode})` : ''}`,
+        ))
+        const groupRows = groups.length
+          ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } }, groups.map((g, i) =>
+            h('div', {
+              key: i,
+              style: { ...S.chip, background: 'var(--dsw-alias-fill-l1, var(--dsw-alias-border-l1))' },
+            }, `${langIsZh() ? g.zh : g.en} · ${g.count}`)))
+          : null
+        const sampleRow = Array.isArray(local.sample) && local.sample.length
+          ? h('div', { style: S.footnote }, M(
+            `最近写入：${local.sample.join('、')}`,
+            `Recently changed: ${local.sample.join(', ')}`,
+          ))
+          : null
+        return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, head, meta, groupRows, sampleRow)
+      })() : null
+
       const overview = h('div', { style: { gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '8px' } },
         metrics,
-        data && Array.isArray(data.advice) && data.advice.length
-          ? h('div', { style: { ...S.card, gap: '4px', padding: '10px 13px' } },
+        (localBlock || (data && Array.isArray(data.advice) && data.advice.length))
+          ? h('div', { style: { ...S.card, gap: '6px', padding: '10px 13px' } },
             h('div', { style: S.cardTitle }, M('待办', 'To-do')),
-            h(Advice, { items: data.advice }))
+            localBlock,
+            data && Array.isArray(data.advice) && data.advice.length ? h(Advice, { items: data.advice }) : null)
           : null,
       )
 

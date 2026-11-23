@@ -1761,6 +1761,51 @@ function workspaceRoots(dshHome) {
     : []
 }
 
+// 本机待推送文件按「同步内容」的分组归类；标签与 collectScopeGroups 的 titleZh/titleEn 对齐
+const PENDING_GROUP_LABEL = {
+  profile: ['本机 profile', 'Local profile'],
+  prompt: ['全局提示', 'Global prompts'],
+  skills: ['Skills', 'Skills'],
+  presets: ['Agent 预设', 'Agent presets'],
+  'storages-record': ['技能市场台账', 'Skill market ledger'],
+  settings: ['插件设置与工作流', 'Plugin settings & workflows'],
+  mnemon: ['记忆数据', 'Memory data'],
+  'local-plugins': ['本地源码插件包', 'Local plugin packages'],
+  'plugin-data': ['插件数据', 'Plugin data'],
+  extra: ['额外路径', 'Extra paths'],
+  workspace: ['工作区资料', 'Workspace files'],
+  conversations: ['会话记录', 'Conversations'],
+  other: ['其它', 'Other'],
+}
+
+function pendingGroupOf(file, dshHome, profileDir, workspacePaths) {
+  const norm = String(file).replace(/\\/g, '/')
+  const base = String(dshHome).replace(/\\/g, '/').replace(/\/+$/, '')
+  const prof = String(profileDir).replace(/\\/g, '/').replace(/\/+$/, '')
+  if (prof && norm.startsWith(prof + '/')) return 'profile'
+  if (/\/AGENTS\.md$|\/prompt-inject\.md$/i.test(norm)) return 'prompt'
+  if (norm.startsWith(base + '/skills/')) return 'skills'
+  if (norm.startsWith(base + '/.agent-presets/')) return 'presets'
+  if (norm.startsWith(base + '/mnemon/')) return 'mnemon'
+  if (norm.startsWith(base + '/sessions/')) return 'conversations'
+  for (const w of workspacePaths || []) {
+    const wn = String(w).replace(/\\/g, '/').replace(/\/+$/, '')
+    if (wn && norm.startsWith(wn + '/')) return 'workspace'
+  }
+  return 'other'
+}
+
+// 会话文件的标题：投影缓存 record.rows.title.val 就是 DSH 面板显示的会话名
+function sessionTitleOf(dshHome, sessionId) {
+  if (!sessionId) return ''
+  try {
+    const p = join(dshHome, 'storages', 'session_projcache', 'sessions', sessionId + '.json')
+    const o = JSON.parse(readFileSync(p, 'utf8'))
+    const t = o && o.record && o.record.rows && o.record.rows.title && o.record.rows.title.val
+    return typeof t === 'string' && t.trim() ? t : ''
+  } catch { return '' }
+}
+
 /**
  * 本机 DSH 数据里「上次同步之后又写过」的文件有多少个。
  * 只看 mtime，不读内容、**不跑 capture**（跑 capture 要复制整个工作区，几 GB）。
@@ -1773,9 +1818,10 @@ function workspaceRoots(dshHome) {
  */
 function localPending(dshHome, lastSyncAt, profileName, ctx = {}) {
   const since = lastSyncAt ? Date.parse(lastSyncAt) : NaN
-  if (!Number.isFinite(since)) return { known: false, pending: 0, newestAt: '', sample: [] }
+  if (!Number.isFinite(since)) return { known: false, pending: 0, newestAt: '', sample: [], groups: [] }
   const skip = new Set(['node_modules', '.git', 'models', '_tmp', 'staging', 'logs', 'attachments'])
   const profile = join(dshHome, 'profiles', profileName || 'desktop')
+  const workspacePaths = workspaceRoots(dshHome)
   const stack = [
     join(dshHome, 'sessions'),
     join(dshHome, 'skills'),
@@ -1804,6 +1850,7 @@ function localPending(dshHome, lastSyncAt, profileName, ctx = {}) {
   let pending = 0
   let newest = 0
   const sample = []
+  const groupCount = new Map()
   while (stack.length && scanned < 20000 && Date.now() < deadline) {
     const cur = stack.pop()
     let st
@@ -1826,14 +1873,27 @@ function localPending(dshHome, lastSyncAt, profileName, ctx = {}) {
       }
       pending++
       if (st.mtimeMs > newest) newest = st.mtimeMs
-      if (sample.length < 3) sample.push(`${basename(dirname(cur))}/${basename(cur)}`)
+      const gid = pendingGroupOf(cur, dshHome, profile, workspacePaths)
+      groupCount.set(gid, (groupCount.get(gid) || 0) + 1)
+      // 会话文件显示会话标题而不是目录 ID；其余显示父目录/文件名
+      let label = `${basename(dirname(cur))}/${basename(cur)}`
+      if (gid === 'conversations') {
+        const sid = basename(dirname(cur)) // sessions/<workspace>/<sessionId>/session.v4.jsonl.zstd
+        const title = sessionTitleOf(dshHome, sid)
+        if (title) label = title
+      }
+      if (sample.length < 3) sample.push(label)
     }
   }
+  const groups = [...groupCount.entries()]
+    .map(([id, count]) => ({ id, zh: PENDING_GROUP_LABEL[id]?.[0] || id, en: PENDING_GROUP_LABEL[id]?.[1] || id, count }))
+    .sort((a, b) => b.count - a.count)
   return {
     known: true,
     pending,
     newestAt: newest ? new Date(newest).toISOString() : '',
     sample,
+    groups,
     truncated: scanned >= 20000 || Date.now() >= deadline,
   }
 }

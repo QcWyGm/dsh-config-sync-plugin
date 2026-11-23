@@ -1,10 +1,10 @@
 {
-  "version": "0.3.85",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.85/dsh-config-sync-plugin-0.3.85.tgz",
-  "tgzBytes": 408052,
-  "sha256":"b0d6f23f66032bd0a7bfe1e9430ae25a8d4a2b2a3e14ec80c4d894350ce62df7",
+  "version": "0.3.86",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.86/dsh-config-sync-plugin-0.3.86.tgz",
+  "tgzBytes": 410074,
+  "sha256":"ca22a29480ee80da3cfbec0ade2bcb14b8482bf1527ee6579330948dc5294f3e",
   "releasedAt": "2026-11-23",
-  "notes": "去掉「工作区显示」卡片编辑态那条强调色说明条：编辑与否只看标题行那个按钮（「修改」/「完成」），不再多插一行黄底提示。其余不变——整卡一个按钮、会话行自带开关与底色分隔线。",
-  "notesEn": "Removed the highlighted banner that appeared above the workspace list in edit mode. Whether you are editing is now read from the single Edit/Done button in the card header; no extra tinted row is inserted. Everything else stays: one button for the whole card, and each session row carries its own toggle with a background and divider.",
+  "notes": "本机仓库卡里的「本机数据」挪进「概览-待办」：按「同步内容」的分组口径（会话记录 / Skills / 插件数据 / 记忆数据 / 工作区资料 …）统计待推送文件，样本里的会话文件显示会话标题而不是 session id 目录名。",
+  "notesEn": "Moved \"Local data\" out of the Local repo card into Overview / To-do. Pending files are now grouped with the same categories as the Sync-content card (Conversations / Skills / Plugin data / Memory data / Workspace files …), and session samples show the session title instead of the session-id folder name.",
   "minClient": "0.2.2-rc.2"
 }

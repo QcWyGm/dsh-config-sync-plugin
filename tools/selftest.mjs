@@ -1726,5 +1726,45 @@ console.log('== 配置同步页面 5 点调整 ==')
     && cliSrc.includes("scrollMarginTop: '8px'")
     && !cliSrc.includes('headerRef.current ? headerRef.current.offsetHeight'), '滚动遮挡')
 }
+console.log('')
+console.log('== 0.3.86：本机数据挪进待办 + 会话显示会话名 + 按同步内容分组 ==')
+{
+  const idxSrc = existsSync(join(pluginRootSelf, 'index.js')) ? readFileSync(join(pluginRootSelf, 'index.js'), 'utf8') : ''
+  const cliSrc = existsSync(join(pluginRootSelf, 'client.js')) ? readFileSync(join(pluginRootSelf, 'client.js'), 'utf8') : ''
+  // 1) 宿主：按同步内容分组归类 + 从投影缓存取会话标题
+  check('本机数据按同步内容分组归类（pendingGroupOf + PENDING_GROUP_LABEL）',
+    idxSrc.includes('const PENDING_GROUP_LABEL = {')
+    && idxSrc.includes('conversations: [\'会话记录\', \'Conversations\']')
+    && idxSrc.includes('function pendingGroupOf(')
+    && idxSrc.includes('const gid = pendingGroupOf(')
+    && idxSrc.includes('groupCount.set(gid, (groupCount.get(gid) || 0) + 1)'), 'index.js 分组统计')
+  check('本机数据样本里会话显示会话标题（sessionTitleOf）',
+    idxSrc.includes('function sessionTitleOf(')
+    && idxSrc.includes('record.rows.title.val')
+    && idxSrc.includes("if (gid === 'conversations')")
+    && idxSrc.includes('if (title) label = title')
+    && idxSrc.includes('if (sample.length < 3) sample.push(label)'), 'index.js 会话标题')
+  check('localPending 返回 groups（zh/en/count）',
+    idxSrc.includes('const groups = [...groupCount.entries()]')
+    && idxSrc.includes('zh: PENDING_GROUP_LABEL[id]?.[0]')
+    && idxSrc.includes('groups,')
+    && idxSrc.includes('sample: [], groups: []'), 'index.js localPending 返回值')
+  // 2) 客户端：本机数据从「本机仓库」卡挪进「待办」
+  const localDataHits = cliSrc.split("M('本机数据', 'Local data')").length - 1
+  check('本机数据只出现在待办卡（从本机仓库卡移除）',
+    localDataHits === 1
+    && cliSrc.includes('const localBlock = data && data.local && data.local.known')
+    && cliSrc.includes('localBlock,'), 'client.js 待办装配')
+  check('待办里按同步内容分组显示，并列出会话名样本',
+    cliSrc.includes('langIsZh() ? g.zh : g.en')
+    && cliSrc.includes('g.count')
+    && cliSrc.includes('最近写入：')
+    && cliSrc.includes('local.sample.join'), 'client.js 分组展示')
+  check('分组标签与同步内容一致（会话记录/技能/插件数据/记忆数据）',
+    idxSrc.includes("conversations: ['会话记录', 'Conversations']")
+    && idxSrc.includes("skills: ['Skills', 'Skills']")
+    && idxSrc.includes("'plugin-data': ['插件数据', 'Plugin data']")
+    && idxSrc.includes("mnemon: ['记忆数据', 'Memory data']"), '分组口径')
+}
 process.exit(failures === 0 ? 0 : 1)
 
