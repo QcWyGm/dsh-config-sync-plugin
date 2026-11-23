@@ -19,7 +19,7 @@ The package name is **`dsh-config-sync-plugin`** (the `dsh-config-sync` name on 
 
 | Way | Command / entry | Notes |
 |---|---|---|
-| npm | `npm i dsh-config-sync-plugin` | Use it as a dependency, or add `"dsh-config-sync-plugin": "^0.3.82"` to the profile's `package.json` and run `pnpm i`. The name matches the `cordis.patch.yml` insert name and the install folder `dsh-config-sync-plugin-<ver>` |
+| npm | `npm i dsh-config-sync-plugin` | Use it as a dependency, or add `"dsh-config-sync-plugin": "^0.3.85"` to the profile's `package.json` and run `pnpm i`. The name matches the `cordis.patch.yml` insert name and the install folder `dsh-config-sync-plugin-<ver>` |
 | Marketplace | client → Plugins → Discover → “Config Sync” | Installs from the git commit registered in `market-index.json` |
 | Offline tgz | `releases\dsh-config-sync-plugin-<ver>.tgz` | GitHub Release asset for air-gapped machines; the panel's Update button downloads the same file |
 
@@ -239,7 +239,7 @@ Each workspace switches between the three states independently; expanding it let
 Five interaction refinements on top of the 0.3.76 "Workspace visibility" card:
 
 1. **Session names**: each expanded session shows a readable title (from the `session/title` event, falling back to the first user message text); hover for the full session ID. Titles are cached and rebuilt from the local logs on each machine.
-2. **Edit button**: the state dropdown and per-session Hide/Show buttons stay hidden until you click Edit on that workspace; click Done to leave edit mode, so states cannot be changed by accident.
+2. **Edit button**: the state dropdown and per-session Hide/Show buttons stay hidden until you click Edit on that workspace; click Done to leave edit mode, so states cannot be changed by accident. (From 0.3.84 there is a single Edit button for the whole card — see below.)
 3. **Click to expand**: click anywhere on a workspace row to expand/collapse its sessions; no separate expand button.
 4. **Card position**: the Workspace visibility card moved just above Feedback, as the last configuration step.
 5. **Sticky title + quick jump**: the panel title bar is sticky, with shortcut tabs below it (Overview / Workspaces / Targets / Automation / Scripts / Restore / Content / Plugin data / Feedback); clicking one smoothly scrolls to that section.
@@ -252,6 +252,23 @@ Two display fixes on top of 0.3.77:
 
 1. **Jump order matches section order**: the quick-jump tabs now follow the exact render order of the sections (Overview / Sync conflicts [when present] / Local paths [when expanded] / Targets / Automation & updates / Scripts / Restore / Content / Plugin data / Workspace visibility / Feedback). The two conditional sections (conflicts, local paths) appear in the tabs only when their cards are shown.
 2. **Scroll lands below the title**: the sticky title bar now uses an opaque background (same fill as panel cards), so content no longer shows through it; jumping to a tab sets the scroll offset from the title bar's actual height, so the target section lands fully below the title instead of being covered.
+
+### Workspace visibility card: one Edit button for the whole card, sessions paired with their toggles (0.3.84 / 0.3.85)
+
+The edit interaction of the "Workspace visibility" card was rebuilt:
+
+1. **A single Edit button for the entire card** (0.3.84): previously every workspace row carried its own Edit/Done button, and once there were several rows the buttons no longer lined up with the sessions. Now there is one button on the right of the header row — "Edit" when idle, switching to "Done" (primary colour, same position) once you are editing — and it unlocks every workspace tri-state plus every session toggle at once; clicking again leaves edit mode. The per-row button is gone.
+2. **Session/button pairing made concrete** (0.3.84): each session gets its own row with a divider between rows; in edit mode the whole row gets a background and rounded corners, framing "this session" together with "its button". The toggle sits at the end of that row with a fixed width, so a wrap never puts it next to a different session. The word and colour distinguish Hide (red) from Show (green), the `title` carries the session name, and hidden sessions get a struck-through, dimmed name (the separate "Hidden" label was dropped).
+3. **No tinted explanation banner** (0.3.85): edit mode no longer inserts a yellow-bordered hint row above the list; whether you are editing is read from the header button alone.
+
+### Workspace visibility card: blank sessions and idle-review parents are collapsed too (0.3.83)
+
+On top of 0.3.82's "collapse agent child sessions by default", two more kinds of noise are folded away:
+
+1. **Blank sessions**: entries that were created but never used — no message, no turn (empty `origin` in the session header, and the log only holds permission / sandbox / approval / session-end-seed events, no `turn/start` and no `user/message`).
+2. **Mnemon idle-review parents**: `mnemon-review-owner-v1-*`, which carry only a `subagent/catalog` event — the actual content lives in the `mnemon-review-v1-*` child session they point at.
+
+Both naturally satisfy the same "blank" test, so one rule folds them away; no name matching is needed. A "Show blank" checkbox in the header row brings them back, and the footer reports how many blank and how many agent sessions were collapsed. On this machine the default view drops from 99 entries to 10.
 
 ### Workspace visibility card: agent sessions collapsed by default + instant hide/show (0.3.82)
 
@@ -652,6 +669,9 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-23 | 0.3.85 | Removed the tinted banner above the workspace list in edit mode; edit state is read from the Edit/Done button in the header |
+| 2026-11-23 | 0.3.84 | Workspace visibility card uses one Edit button for the whole card; each session row carries its own toggle with a background and divider, hidden names struck through |
+| 2026-11-23 | 0.3.83 | Workspace visibility card also collapses blank sessions and Mnemon idle-review parents; default view on this machine 99 → 10 |
 | 2026-11-23 | 0.3.82 | Workspace visibility card collapses agent sessions by default; hide/show goes through workspaceRegistry and applies instantly (no restart) |
 | 2026-11-21 | 0.3.75 | Sync hidden/archived workspaces across machines (workspace-archives.v1.json into settings); hidden workspaces and sessions stay hidden on B after pull |
 | 2026-11-19 | 0.3.69 | Carry billion-context compaction state across machines (bili-state.mjs); two new notice kinds (plugin-missing / context-state) |

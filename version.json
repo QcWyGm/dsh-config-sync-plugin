@@ -1,8 +1,8 @@
 {
   "version": "0.3.85",
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.85/dsh-config-sync-plugin-0.3.85.tgz",
-  "tgzBytes": 406030,
-  "sha256":"cc01d3ba9b3447256ba0ddc3e7541609e9a96956459ae76fbfb4e6c2a4f06b5a",
+  "tgzBytes": 408052,
+  "sha256":"b0d6f23f66032bd0a7bfe1e9430ae25a8d4a2b2a3e14ec80c4d894350ce62df7",
   "releasedAt": "2026-11-23",
   "notes": "去掉「工作区显示」卡片编辑态那条强调色说明条：编辑与否只看标题行那个按钮（「修改」/「完成」），不再多插一行黄底提示。其余不变——整卡一个按钮、会话行自带开关与底色分隔线。",
   "notesEn": "Removed the highlighted banner that appeared above the workspace list in edit mode. Whether you are editing is now read from the single Edit/Done button in the card header; no extra tinted row is inserted. Everything else stays: one button for the whole card, and each session row carries its own toggle with a background and divider.",
