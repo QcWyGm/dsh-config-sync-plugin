@@ -1627,6 +1627,10 @@ console.log('== 配置同步页面 5 点调整 ==')
     wvSrc.includes('zstdDecompressSync') && wvSrc.includes('buildSessionLogIndex')
     && wvSrc.includes("'session/title'") && wvSrc.includes('title: rec.title || wsId')
     && wvSrc.includes('const title = log ? titleFromFile(log).title'), 'workspace-view.mjs 的标题提取')
+  check('会话名称：与 DSH 面板一致——优先 provider 正式标题，不再取第一条 fallback',
+    wvSrc.includes('providerTitle') && wvSrc.includes("kind === 'provider'")
+    && wvSrc.includes('cleanTitle(providerTitle) || cleanTitle(fallbackTitle)')
+    && !wvSrc.includes('if (lastTitle) break'), '标题演进：provider > fallback > 无来源 > 首条消息')
   check('会话名称：卡片显示 s.title || s.id', cliSrc.includes('s.title || s.id'), 'client.js 卡片')
   // 2) 修改按钮：点「修改」才出现三态 select 与会话隐藏按钮
   check('修改按钮：编辑态才显示三态 select 与会话隐藏按钮',

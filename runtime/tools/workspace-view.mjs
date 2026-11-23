@@ -134,14 +134,21 @@ function titleFromFile(file) {
     } else {
       text = buf.toString('utf8', 0, 256 * 1024)
     }
-    let lastTitle = ''
+    // 会话标题会演进：先产生 fallback（首条消息截断），随后 AI 生成 provider 正式标题覆盖。
+    // DSH 面板显示的是最新/provider 标题；这里必须一致，不能像以前那样找到第一条就 break。
+    let providerTitle = ''      // source.kind === 'provider' 的 AI 标题（取最后一条）
+    let fallbackTitle = ''      // fallback 标题（取最后一条）
+    let anyTitle = ''           // 无 source 信息的兜底标题（取最后一条）
     let firstUserText = ''
     for (const line of text.split('\n')) {
       if (!line) continue
       let ev
       try { ev = JSON.parse(line) } catch { continue }
       if (ev.type === 'session/title' && ev.data && typeof ev.data.title === 'string') {
-        lastTitle = ev.data.title
+        const kind = ev.data.source && ev.data.source.kind
+        if (kind === 'provider') providerTitle = ev.data.title
+        else if (kind === 'fallback') fallbackTitle = ev.data.title
+        else anyTitle = ev.data.title
       }
       if (!firstUserText && ev.type === 'user/message' && ev.data && Array.isArray(ev.data.content)) {
         for (const part of ev.data.content) {
@@ -151,9 +158,9 @@ function titleFromFile(file) {
           }
         }
       }
-      if (lastTitle) break
     }
-    result = { title: cleanTitle(lastTitle) || cleanTitle(firstUserText) }
+    // 优先级与 DSH 面板一致：provider 正式标题 > fallback > 无来源 title > 首条用户消息
+    result = { title: cleanTitle(providerTitle) || cleanTitle(fallbackTitle) || cleanTitle(anyTitle) || cleanTitle(firstUserText) }
   } catch {
     result = { title: '' }
   }

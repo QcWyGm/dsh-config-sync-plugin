@@ -900,6 +900,7 @@ $localPluginMap = [ordered]@{
   'dsh-our-free-model-2.8.0'      = 'dsh-our-free-model'
   'dsh-purge-1.4.0'               = 'dsh-purge'
   'dsh-config-sync-plugin-0.3.69' = 'dsh-config-sync-plugin'
+  'dsh-config-sync-plugin-0.3.81' = 'dsh-config-sync-plugin'
   'dsh-config-sync-plugin-0.3.80' = 'dsh-config-sync-plugin'
   'dsh-config-sync-plugin-0.3.79' = 'dsh-config-sync-plugin'
   'dsh-config-sync-plugin-0.3.78' = 'dsh-config-sync-plugin'

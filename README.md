@@ -15,7 +15,7 @@ DSH 插件：左侧栏多一行「配置同步」，点开是整页体检面板�
 
 | 方式 | 命令 / 入口 | 说明 |
 |---|---|---|
-| npm | `npm i dsh-config-sync-plugin` | 适合把它当依赖管理，或在 profile 的 `package.json` 里写 `"dsh-config-sync-plugin": "^0.3.80"` 后 `pnpm i`；包名与 `cordis.patch.yml` 里注册的名字、插件目录 `dsh-config-sync-plugin-<ver>` 一致 |
+| npm | `npm i dsh-config-sync-plugin` | 适合把它当依赖管理，或在 profile 的 `package.json` 里写 `"dsh-config-sync-plugin": "^0.3.81"` 后 `pnpm i`；包名与 `cordis.patch.yml` 里注册的名字、插件目录 `dsh-config-sync-plugin-<ver>` 一致 |
 | 插件市场 | 客户端「插件市场 → 发现」搜「配置同步」 | 走 `market-index.json` 登记的 git 提交，版本与 README 对齐 |
 | 离线 tgz | `releases\dsh-config-sync-plugin-<ver>.tgz` | GitHub Release 附件，适合内网机器；面板「更新」按钮下载的也是它 |
 
@@ -273,6 +273,11 @@ pwsh -File runtime\sync.ps1 pull `
 1. **跳转顺序对齐卡片**：快捷标签顺序改为与分区实际渲染顺序完全一致（概览 / 同步冲突[有冲突时] / 本机路径[展开时] / 同步目标 / 自动化与插件更新 / 生成脚本 / 还原备份 / 同步内容 / 插件数据 / 工作区显示 / 问题反馈）。同步冲突、本机路径两个条件分区只在卡片存在时才出现在标签里。
 2. **滚动落点在标题下方**：标题栏改为不透明背景（面板卡片同色），滚动时内容不再从标题背后透出；点标签跳转时按标题栏实际高度设置滚动落点，目标分区完整显示在标题下方，不再被遮住。
 
+### 工作区显示卡片的会话名称与 DSH 面板保持一致（0.3.81）
+
+修复「工作区显示」卡片里会话名称与 DSH 会话面板显示不一致的问题。
+
+DSH 的会话标题会演进：先产生 fallback 临时标题（首条消息截断），随后由大模型生成 provider 正式标题。之前卡片只读到第一条 fallback 就停止；现在改为按 provider 正式标题 > fallback > 无来源 title > 首条用户消息 的优先级取最新标题，与 DSH 面板完全一致。
 ### 修复跨机同步把新插件降级覆盖、拉取后被回滚（0.3.80）
 
 修复跨机拉取时本地已安装的新版插件被配置仓库里的旧归档反向覆盖，进而导致 link 变成 0.0.0、插件 bundle 自检失败、拉取自动回滚的问题。

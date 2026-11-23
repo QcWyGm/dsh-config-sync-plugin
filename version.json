@@ -1,10 +1,10 @@
 {
-  "version": "0.3.80",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.80/dsh-config-sync-plugin-0.3.80.tgz",
-  "tgzBytes": 398649,
-  "sha256": "0adacd49b5560265b26d392a855fbb7117102299d1fe1962d64177a1abd42a51",
+  "version": "0.3.81",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.81/dsh-config-sync-plugin-0.3.81.tgz",
+  "tgzBytes": 399427,
+  "sha256": "67d5ce251940255ef57306c366e87787993d193380db3cc7354597cc6cb6ab42",
   "releasedAt": "2026-11-23",
-  "notes": "修复跨机同步把本机已装新版插件降级覆盖、导致 link 变 0.0.0 / bundle 自检失败 / 拉取回滚的问题：版本比对改为语义化只升不降；capture 打包后强校验归档顶层目录名与 version，异常归档直接删除。同时重打包配置仓库中损坏的归档。",
-  "notesEn": "Fix cross-machine sync downgrading the installed plugin (link -> 0.0.0, bundle resolution failure, pull rollback): version comparison is now semantic upgrade-only; capture validates archive top-level folder and version after packing and deletes bad archives. The corrupted config-repo archive was also repacked.",
+  "notes": "修复「工作区显示」卡片的会话名称与 DSH 面板不一致：DSH 会话标题会演进（fallback 临时标题 → provider 正式标题），卡片之前取第一条 fallback 就停止；现在按 provider > fallback > 无来源 title > 首条用户消息 的优先级取最新标题，与 DSH 面板显示完全一致。",
+  "notesEn": "Fix session names in the \"Workspace visibility\" card differing from the DSH panel: DSH titles evolve (fallback -> provider). The card previously stopped at the first fallback; it now picks the latest by priority provider > fallback > untagged title > first user message, matching DSH exactly.",
   "minClient": "0.2.2-rc.2"
 }
