@@ -15,7 +15,7 @@ DSH 插件：左侧栏多一行「配置同步」，点开是整页体检面板�
 
 | 方式 | 命令 / 入口 | 说明 |
 |---|---|---|
-| npm | `npm i dsh-config-sync-plugin` | 适合把它当依赖管理，或在 profile 的 `package.json` 里写 `"dsh-config-sync-plugin": "^0.3.81"` 后 `pnpm i`；包名与 `cordis.patch.yml` 里注册的名字、插件目录 `dsh-config-sync-plugin-<ver>` 一致 |
+| npm | `npm i dsh-config-sync-plugin` | 适合把它当依赖管理，或在 profile 的 `package.json` 里写 `"dsh-config-sync-plugin": "^0.3.82"` 后 `pnpm i`；包名与 `cordis.patch.yml` 里注册的名字、插件目录 `dsh-config-sync-plugin-<ver>` 一致 |
 | 插件市场 | 客户端「插件市场 → 发现」搜「配置同步」 | 走 `market-index.json` 登记的 git 提交，版本与 README 对齐 |
 | 离线 tgz | `releases\dsh-config-sync-plugin-<ver>.tgz` | GitHub Release 附件，适合内网机器；面板「更新」按钮下载的也是它 |
 
@@ -252,7 +252,7 @@ pwsh -File runtime\sync.ps1 pull `
 | 隐藏会话 | 工作区留在列表，名下会话进「已归档」 | 会话写进 `<DshHome>\storages\workspace.json` 的 `global.archivedSessionIds` |
 | 归档工作区 | 整个工作区从列表消失，会话保留 | `<DshHome>\dsh-session-manager\workspace-archives.v1.json` 写 `archived:true` + 会话一并按隐藏处理 |
 
-每个工作区可独立切三态；展开后还能对单个会话单独「隐藏 / 显示」，两者互不影响（会话操作只动那一条 `archivedSessionIds`，不改工作区归档记录）。改动直接写本机 DSH 的两套状态文件，不调 session-manager 的 Web API（那套 API 需要 DSH connection owner 凭证，插件路由拿不到）。会话列表有本地缓存，切换后重启或刷新会话列表生效。0.3.75 已把归档文件纳入同步，所以这里改的隐藏 / 归档状态也会跟着 push/pull 到另一台机。
+每个工作区可独立切三态；展开后还能对单个会话单独「隐藏 / 显示」，两者互不影响（会话操作只动那一条 `archivedSessionIds`，不改工作区归档记录）。改动不调 session-manager 的 Web API（那套 API 需要 DSH connection owner 凭证，插件路由拿不到），而是经宿主 `workspaceRegistry` 落盘并推送会话列表更新，切换后立刻生效（详见 0.3.82）。0.3.75 已把归档文件纳入同步，所以这里改的隐藏 / 归档状态也会跟着 push/pull 到另一台机。
 
 ### 配置同步面板：会话名称、修改按钮、点行展开与快速跳转（0.3.77）
 
@@ -272,6 +272,15 @@ pwsh -File runtime\sync.ps1 pull `
 
 1. **跳转顺序对齐卡片**：快捷标签顺序改为与分区实际渲染顺序完全一致（概览 / 同步冲突[有冲突时] / 本机路径[展开时] / 同步目标 / 自动化与插件更新 / 生成脚本 / 还原备份 / 同步内容 / 插件数据 / 工作区显示 / 问题反馈）。同步冲突、本机路径两个条件分区只在卡片存在时才出现在标签里。
 2. **滚动落点在标题下方**：标题栏改为不透明背景（面板卡片同色），滚动时内容不再从标题背后透出；点标签跳转时按标题栏实际高度设置滚动落点，目标分区完整显示在标题下方，不再被遮住。
+
+### 工作区显示卡片：默认折叠智能体会话 + 隐藏/显示即时生效（0.3.82）
+
+「工作区显示」卡片两处改动：
+
+1. **默认折叠智能体（subagent）子会话**：卡片只列你自己的会话，标题行新增「显示智能体」勾选项，需要时勾上才把智能体子会话一并列出，并显示被折叠的条数。本机 99 条登记会话里有 80 条是智能体子会话（mnemon 审查 / 派生任务都会留一条），一屏全是它们，自己的会话反而找不到。
+2. **隐藏/显示即时生效**：之前切三态或单条会话只改磁盘上的状态文件，宿主内存里的 `archivedSessionIds` 不更新，必须重启客户端或刷新会话列表才看到变化。现在改走宿主的 `workspaceRegistry`（`archiveSession` / `unarchiveSession`），落盘的同时触发会话列表推送，面板上切完立刻生效。宿主服务取不到时自动退回原来的文件写法，并在卡片提示里说明走的是哪条路。
+
+会话所属工作区与会话标题的读取仍然自包含，不依赖 session-manager 的 Web API。
 
 ### 工作区显示卡片的会话名称与 DSH 面板保持一致（0.3.81）
 
@@ -625,6 +634,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 | 日期 | 版本 | 要点 |
 |---|---|---|
+| 2026-11-23 | 0.3.82 | 工作区显示卡片默认折叠智能体会话；隐藏/显示改走 workspaceRegistry，切完即时生效（不再需要重启） |
 | 2026-11-21 | 0.3.75 | 隐藏/归档的工作区跨机同步（workspace-archives.v1.json 纳入 settings），B 机拉取后不再显示已隐藏的工作区与会话 |
 | 2026-11-19 | 0.3.69 | 跨机搬运 billion-context 压缩状态（bili-state.mjs）；同步清单新增 plugin-missing / context-state 两类提示 |
 | 2026-11-19 | 0.3.68 | 会话投影缓存守卫，治 agent-busy 建会话失败 |

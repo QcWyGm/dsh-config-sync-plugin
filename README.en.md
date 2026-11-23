@@ -19,7 +19,7 @@ The package name is **`dsh-config-sync-plugin`** (the `dsh-config-sync` name on 
 
 | Way | Command / entry | Notes |
 |---|---|---|
-| npm | `npm i dsh-config-sync-plugin` | Use it as a dependency, or add `"dsh-config-sync-plugin": "^0.3.81"` to the profile's `package.json` and run `pnpm i`. The name matches the `cordis.patch.yml` insert name and the install folder `dsh-config-sync-plugin-<ver>` |
+| npm | `npm i dsh-config-sync-plugin` | Use it as a dependency, or add `"dsh-config-sync-plugin": "^0.3.82"` to the profile's `package.json` and run `pnpm i`. The name matches the `cordis.patch.yml` insert name and the install folder `dsh-config-sync-plugin-<ver>` |
 | Marketplace | client → Plugins → Discover → “Config Sync” | Installs from the git commit registered in `market-index.json` |
 | Offline tgz | `releases\dsh-config-sync-plugin-<ver>.tgz` | GitHub Release asset for air-gapped machines; the panel's Update button downloads the same file |
 
@@ -232,7 +232,7 @@ A new **Workspace visibility** section brings both native DSH hiding mechanisms 
 | Hide sessions | Workspace stays in the list, its sessions go to Archived | Sessions written to `global.archivedSessionIds` in `<DshHome>\storages\workspace.json` |
 | Archive workspace | Workspace disappears from the list, sessions kept | `<DshHome>\dsh-session-manager\workspace-archives.v1.json` gets `archived:true` and its sessions hidden too |
 
-Each workspace switches between the three states independently; expanding it lets you hide/show a single session without touching others (a session toggle changes only that one `archivedSessionIds` entry, never the workspace archive record). Changes write the two native DSH state files directly — the session-manager Web API needs a DSH connection-owner credential the plugin route does not have. The session list is cached locally, so restart or refresh the session list to see the effect. Since 0.3.75 the archive file is synced, so these states travel with push/pull too.
+Each workspace switches between the three states independently; expanding it lets you hide/show a single session without touching others (a session toggle changes only that one `archivedSessionIds` entry, never the workspace archive record). Changes do not call the session-manager Web API (it needs a DSH connection-owner credential the plugin route does not have) — they go through the host `workspaceRegistry`, which persists and pushes the session-list update, so toggles apply immediately (see 0.3.82). Since 0.3.75 the archive file is synced, so these states travel with push/pull too.
 
 ### Panel: session names, Edit button, click-to-expand and quick jump (0.3.77)
 
@@ -252,6 +252,15 @@ Two display fixes on top of 0.3.77:
 
 1. **Jump order matches section order**: the quick-jump tabs now follow the exact render order of the sections (Overview / Sync conflicts [when present] / Local paths [when expanded] / Targets / Automation & updates / Scripts / Restore / Content / Plugin data / Workspace visibility / Feedback). The two conditional sections (conflicts, local paths) appear in the tabs only when their cards are shown.
 2. **Scroll lands below the title**: the sticky title bar now uses an opaque background (same fill as panel cards), so content no longer shows through it; jumping to a tab sets the scroll offset from the title bar's actual height, so the target section lands fully below the title instead of being covered.
+
+### Workspace visibility card: agent sessions collapsed by default + instant hide/show (0.3.82)
+
+Two changes to the "Workspace visibility" card:
+
+1. **Agent (subagent) sessions are collapsed by default**: the card lists only your own sessions. A "Show agents" checkbox in the header row reveals agent child sessions and reports how many were folded away. 80 of the 99 registered sessions on this machine were agent sessions (mnemon reviews and delegated tasks each leave one behind), flooding the list so you could not find your own.
+2. **Hide/show takes effect immediately**: toggling the workspace tri-state or a single session used to only rewrite the on-disk state file, leaving the host's in-memory `archivedSessionIds` stale — a client restart or session-list refresh was required. It now goes through the host `workspaceRegistry` (`archiveSession` / `unarchiveSession`), which persists and pushes the session-list update, so toggles apply the moment you click. If the host service is unavailable it falls back to the previous file-based write and the card hint says which path was used.
+
+Reading the owning workspace and the session title stays self-contained; the session-manager Web API is not used.
 
 ### Workspace visibility card session names now match the DSH panel (0.3.81)
 
@@ -643,6 +652,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-23 | 0.3.82 | Workspace visibility card collapses agent sessions by default; hide/show goes through workspaceRegistry and applies instantly (no restart) |
 | 2026-11-21 | 0.3.75 | Sync hidden/archived workspaces across machines (workspace-archives.v1.json into settings); hidden workspaces and sessions stay hidden on B after pull |
 | 2026-11-19 | 0.3.69 | Carry billion-context compaction state across machines (bili-state.mjs); two new notice kinds (plugin-missing / context-state) |
 | 2026-11-19 | 0.3.68 | Session projection-cache guard (fixes agent-busy session creation) |

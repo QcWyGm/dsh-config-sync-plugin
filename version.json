@@ -1,8 +1,8 @@
 {
   "version": "0.3.82",
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.82/dsh-config-sync-plugin-0.3.82.tgz",
-  "tgzBytes": 401969,
-  "sha256":"4f1fab70af694d6c86701b5fb6c07f2aab66dd9ca14fc71df94383930bdc49cb",
+  "tgzBytes": 404024,
+  "sha256":"23406b30be2e863f12257738159b60ceb2d393e3edfd2481b0a0c587683312aa",
   "releasedAt": "2026-11-23",
   "notes": "「工作区显示」卡片两处改动：① 默认折叠智能体（subagent）子会话，一屏只剩你自己的会话，需要时勾「显示智能体」一并列出（本机 99 条会话里有 80 条是智能体的）；② 隐藏/显示不再只改状态文件，改走宿主的 workspaceRegistry，落盘的同时触发会话列表推送，在面板上切换立刻生效，不用重启客户端。宿主服务取不到时自动退回原来的文件写法并在提示里说明。",
   "notesEn": "Two changes to the \"Workspace visibility\" card: (1) agent (subagent) sessions are collapsed by default so you only see your own sessions — tick \"Show agents\" to list them (80 of 99 sessions on this machine were agent sessions); (2) hide/show no longer writes the state file only — it goes through the host workspaceRegistry, which persists and pushes the session-list update, so toggles take effect immediately without restarting the client. If the host service is unavailable it falls back to the previous file-based write and says so in the hint.",
