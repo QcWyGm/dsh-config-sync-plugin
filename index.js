@@ -4234,12 +4234,16 @@ async function handleCacheGuard(req, res, config) {
 // 0.3.76：工作区显示状态。自包含读写，不依赖 session-manager API（那个要 owner 凭证）。
 // 0.3.82：改成优先走 workspaceRegistry（宿主服务）→ 落盘同时触发 session-list feed，
 // 面板上切隐藏/显示即时生效；拿不到 registry 时函数内部退回纯文件写法（live:false）。
+// 0.3.83：视图默认多折叠一类「空会话」（创建后没发过消息、也没跑过 turn），
+// 以及 Mnemon 空闲审查的父容器（它只有 subagent/catalog，按空会话判定），
+// 面板不会再列出一堆空白条目。`?agents=1` / `?blank=1` 分别把两类放回来。
 async function handleWorkspaceView(req, res, config) {
   const dshHome = dshHomeOf(config)
   const registry = workspaceRegistryOf()
   const includeAgents = Boolean(req.url && /[?&]agents=1\b/.test(req.url))
+  const includeBlank = Boolean(req.url && /[?&]blank=1\b/.test(req.url))
   if (req.method === 'GET') {
-    try { sendJson(res, 200, { ok: true, ...readView(dshHome, { includeAgents }) }) }
+    try { sendJson(res, 200, { ok: true, ...readView(dshHome, { includeAgents, includeBlank }) }) }
     catch (error) { sendJson(res, 400, { ok: false, error: String((error && error.message) || error) }) }
     return
   }
@@ -4250,13 +4254,14 @@ async function handleWorkspaceView(req, res, config) {
     const body = raw.trim() ? JSON.parse(raw) : {}
     const action = String(body.action || '')
     const withAgents = body.includeAgents === true
+    const withBlank = body.includeBlank === true
     if (action === 'workspace') {
-      const view = await setWorkspaceStateLive(dshHome, String(body.workspaceId || ''), String(body.state || ''), { registry, includeAgents: withAgents })
+      const view = await setWorkspaceStateLive(dshHome, String(body.workspaceId || ''), String(body.state || ''), { registry, includeAgents: withAgents, includeBlank: withBlank })
       sendJson(res, 200, { ok: true, ...view })
       return
     }
     if (action === 'session') {
-      const view = await setSessionStateLive(dshHome, String(body.sessionId || ''), body.hidden === true, { registry, includeAgents: withAgents })
+      const view = await setSessionStateLive(dshHome, String(body.sessionId || ''), body.hidden === true, { registry, includeAgents: withAgents, includeBlank: withBlank })
       sendJson(res, 200, { ok: true, ...view })
       return
     }

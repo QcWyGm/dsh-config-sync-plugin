@@ -1626,18 +1626,18 @@ console.log('== 0.3.82：工作区显示卡片折叠智能体 + 隐藏/显示即
 
   // 1) 智能体折叠：标题提取同时给出 origin，readView 支持 includeAgents 过滤
   check('智能体折叠：titleFromFile 同时返回 origin',
-    wvSrc.includes("let result = { title: '', origin: '' }")
+    wvSrc.includes("let result = { title: '', origin: '', blank: false }")
     && wvSrc.includes('if (!origin && ev.type === \'session\')')
     && wvSrc.includes('origin,'), 'workspace-view.mjs 的头事件解析')
   check('智能体折叠：readView 默认过滤 origin=subagent 并回报 agentHidden',
     wvSrc.includes('const includeAgents = options.includeAgents === true')
     && wvSrc.includes("agent: meta.origin === 'subagent'")
-    && wvSrc.includes('const sessions = includeAgents ? all : all.filter((s) => !s.agent)')
+    && wvSrc.includes('let sessions = includeAgents ? all : all.filter((s) => !s.agent)')
     && wvSrc.includes('agentHidden: totalAgents'), 'workspace-view.mjs 的 readView')
   check('智能体折叠：卡片默认不显示、可勾选「显示智能体」',
     cliSrc.includes('const [showAgents, setShowAgents] = react.useState(false)')
     && cliSrc.includes("M('显示智能体', 'Show agents')")
-    && cliSrc.includes('opts.includeAgents ? \'?agents=1\' : \'\''), 'client.js 的勾选框')
+    && cliSrc.includes("q.push('agents=1')"), 'client.js 的勾选框')
 
   // 2) 即时生效：走 workspaceRegistry 而不是直接改文件
   check('即时生效：workspace-view 导出实时通道两函数',
@@ -1653,7 +1653,7 @@ console.log('== 0.3.82：工作区显示卡片折叠智能体 + 隐藏/显示即
   check('即时生效：路由改用 Live 版本并透传 registry',
     idxSrc.includes("import { setWorkspaceStateLive, setSessionStateLive } from './runtime/tools/workspace-view.mjs'")
     && idxSrc.includes('await setWorkspaceStateLive(') && idxSrc.includes('await setSessionStateLive(')
-    && idxSrc.includes('{ registry, includeAgents: withAgents }'), 'index.js 的 handleWorkspaceView')
+    && idxSrc.includes('{ registry, includeAgents: withAgents, includeBlank: withBlank }'), 'index.js 的 handleWorkspaceView')
   check('即时生效：registry 拿不到时退回文件写法并标记 live:false',
     wvSrc.includes('return { ...setWorkspaceState(dshHome, workspaceId, state), live: false }')
     && wvSrc.includes("live: false, fallbackFrom: 'registry'"), 'workspace-view.mjs 的降级')
@@ -1671,7 +1671,7 @@ console.log('== 配置同步页面 5 点调整 ==')
   check('会话名称：工具从 session 日志提取 title 并随 readView 返回',
     wvSrc.includes('zstdDecompressSync') && wvSrc.includes('buildSessionLogIndex')
     && wvSrc.includes("'session/title'") && wvSrc.includes('title: rec.title || wsId')
-    && wvSrc.includes("const meta = log ? titleFromFile(log) : { title: '', origin: '' }"), 'workspace-view.mjs 的标题提取')
+    && wvSrc.includes("const meta = log ? titleFromFile(log) : { title: '', origin: '', blank: false }"), 'workspace-view.mjs 的标题提取')
   check('会话名称：与 DSH 面板一致——优先 provider 正式标题，不再取第一条 fallback',
     wvSrc.includes('providerTitle') && wvSrc.includes("kind === 'provider'")
     && wvSrc.includes('cleanTitle(providerTitle) || cleanTitle(fallbackTitle)')

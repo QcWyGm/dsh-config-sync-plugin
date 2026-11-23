@@ -504,7 +504,11 @@ window.__ModuleLoader__.load({
 
     /** 工作区显示状态：三态（显示 / 隐藏会话 / 归档工作区）+ 会话级独立隐藏。 */
     async function callWorkspaceView(payload, opts) {
-      const query = opts && opts.includeAgents ? '?agents=1' : ''
+      // 两类默认折叠的会话各有一个开关：agents=1 放回智能体，blank=1 放回空会话。
+      const q = []
+      if (opts && opts.includeAgents) q.push('agents=1')
+      if (opts && opts.includeBlank) q.push('blank=1')
+      const query = q.length > 0 ? '?' + q.join('&') : ''
       const res = await fetch('/config-sync/workspace-view' + query, payload
         ? {
           method: 'POST',
@@ -1607,38 +1611,40 @@ window.__ModuleLoader__.load({
       const [editing, setEditing] = react.useState({})
       // 默认折叠智能体（subagent）会话：一屏全是子会话时根本找不到自己的会话。
       const [showAgents, setShowAgents] = react.useState(false)
+      // 默认折叠空会话：建了没聊过、或者只是 Mnemon 空闲审查的父容器，列出只会干扰。
+      const [showBlank, setShowBlank] = react.useState(false)
 
       const load = react.useCallback(async () => {
         setBusy(true); setErr('')
-        try { setData(await callWorkspaceView(null, { includeAgents: showAgents })) }
+        try { setData(await callWorkspaceView(null, { includeAgents: showAgents, includeBlank: showBlank })) }
         catch (e) { setErr(String((e && e.message) || e)) }
         finally { setBusy(false) }
-      }, [showAgents])
+      }, [showAgents, showBlank])
       react.useEffect(() => { load() }, [load])
 
       const changeWorkspace = react.useCallback(async (wsId, state) => {
         setBusy(true); setErr(''); setMsg('')
         try {
-          const d = await callWorkspaceView({ action: 'workspace', workspaceId: wsId, state, includeAgents: showAgents }, { includeAgents: showAgents })
+          const d = await callWorkspaceView({ action: 'workspace', workspaceId: wsId, state, includeAgents: showAgents, includeBlank: showBlank }, { includeAgents: showAgents, includeBlank: showBlank })
           setData(d)
           setMsg(d.live === true
             ? M('已更新，会话列表已同步', 'Updated — the session list is in sync')
             : M('已更新；宿主服务暂不可用，已直接写入状态文件', 'Updated; host service unavailable, wrote the state file directly'))
         } catch (e) { setErr(String((e && e.message) || e)) }
         finally { setBusy(false) }
-      }, [showAgents])
+      }, [showAgents, showBlank])
 
       const changeSession = react.useCallback(async (sid, hidden) => {
         setBusy(true); setErr(''); setMsg('')
         try {
-          const d = await callWorkspaceView({ action: 'session', sessionId: sid, hidden, includeAgents: showAgents }, { includeAgents: showAgents })
+          const d = await callWorkspaceView({ action: 'session', sessionId: sid, hidden, includeAgents: showAgents, includeBlank: showBlank }, { includeAgents: showAgents, includeBlank: showBlank })
           setData(d)
           setMsg(d.live === true
             ? M('已更新，会话列表已同步', 'Updated — the session list is in sync')
             : M('已更新；宿主服务暂不可用，已直接写入状态文件', 'Updated; host service unavailable, wrote the state file directly'))
         } catch (e) { setErr(String((e && e.message) || e)) }
         finally { setBusy(false) }
-      }, [showAgents])
+      }, [showAgents, showBlank])
 
       const stateLabel = (st) => st === 'archive' ? M('归档', 'Archived')
         : st === 'hide-sessions' ? M('隐藏会话', 'Sessions hidden')
@@ -1661,11 +1667,24 @@ window.__ModuleLoader__.load({
       const wss = data.workspaces || []
       const archived = wss.filter(w => w.state === 'archive').length
       const agentHidden = Number(data.agentHidden || 0)
+      const blankHidden = Number(data.blankHidden || 0)
       return h('div', { style: S.card },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           h('div', { style: S.cardTitle }, M('工作区显示状态', 'Workspace visibility')),
           h('div', { style: { ...S.hint, flex: 1, minWidth: '160px' } },
             M('点工作区展开会话；点「修改」后才可切换状态。改动即时生效，会话列表会跟着变。', 'Click a workspace to expand sessions; click Edit to change states. Changes apply immediately and the session list follows.')),
+          h('label', {
+            style: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' },
+            title: M('默认隐藏空会话（没跑过对话的历史条目）与 Mnemon 空闲审查的父容器，勾选后一并列出', 'Blank sessions (never used) and Mnemon idle-review parents are hidden by default; tick to list them too'),
+          },
+            h('input', {
+              type: 'checkbox',
+              checked: showBlank,
+              disabled: busy,
+              onChange: (e) => setShowBlank(e.target.checked === true),
+            }),
+            h('span', null, M('显示空会话', 'Show blank')),
+          ),
           h('label', {
             style: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' },
             title: M('默认隐藏智能体（subagent）会话，勾选后一并列出', 'Agent (subagent) sessions are hidden by default; tick to list them too'),
@@ -1684,7 +1703,8 @@ window.__ModuleLoader__.load({
         err ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-error-primary)' } }, err) : null,
         h('div', { style: S.footnote },
           M('共 ' + wss.length + ' 个工作区，' + archived + ' 个已归档；归档的工作区会从列表消失，会话仍保留。', wss.length + ' workspaces, ' + archived + ' archived; archived ones disappear from the list, sessions are kept.')
-            + (agentHidden > 0 && !showAgents ? M('已隐藏 ' + agentHidden + ' 条智能体会话。', ' ' + agentHidden + ' agent sessions hidden.') : '')),
+            + (agentHidden > 0 && !showAgents ? M('已隐藏 ' + agentHidden + ' 条智能体会话。', ' ' + agentHidden + ' agent sessions hidden.') : '')
+            + (blankHidden > 0 && !showBlank ? M('已隐藏 ' + blankHidden + ' 条空会话（含空闲审查父容器）。', ' ' + blankHidden + ' blank sessions hidden (incl. idle-review parents).') : '')),
         wss.length === 0
           ? h('div', { style: S.footnote }, M('没有工作区。', 'No workspaces.'))
           : h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '2px' } },

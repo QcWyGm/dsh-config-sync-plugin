@@ -117,17 +117,18 @@ function cleanTitle(text) {
 }
 
 /**
- * 从单个会话日志文件提取标题与来源。返回 {title, origin} 并写入缓存。
- * origin 取自日志首个 `session` 头事件：`subagent` 表示智能体（子）会话，
- * 面板「工作区显示」卡片默认把它们折叠掉，只留用户自己的会话。
+ * 从单个会话日志文件提取标题、来源与空会话标记。返回 {title, origin, blank} 并写入缓存。
+ * origin 取自日志首个 `session` 头事件：`subagent` 表示智能体（子）会话；
+ * blank 表示从没跑过对话（没有 turn/start、没有首条用户消息）。
+ * 面板「工作区显示」卡片默认把这两类都折叠掉，只留用户自己真正聊过的会话。
  */
 function titleFromFile(file) {
   let mtime = 0
-  try { mtime = fs.statSync(file).mtimeMs } catch { return { title: '', origin: '' } }
+  try { mtime = fs.statSync(file).mtimeMs } catch { return { title: '', origin: '', blank: false } }
   const key = `${file}:${mtime}`
   const hit = TITLE_CACHE.get(key)
   if (hit) return hit
-  let result = { title: '', origin: '' }
+  let result = { title: '', origin: '', blank: false }
   try {
     const buf = fs.readFileSync(file)
     let text = ''
@@ -145,6 +146,7 @@ function titleFromFile(file) {
     let anyTitle = ''           // 无 source 信息的兜底标题（取最后一条）
     let firstUserText = ''
     let origin = ''             // 会话来源：subagent = 智能体子会话
+    let sawTurn = false         // 出现过 turn/start：真正跑过对话
     for (const line of text.split('\n')) {
       if (!line) continue
       let ev
@@ -153,6 +155,7 @@ function titleFromFile(file) {
         if (typeof ev.origin === 'string') origin = ev.origin
         else if (ev.data && typeof ev.data.origin === 'string') origin = ev.data.origin
       }
+      if (ev.type === 'turn/start') sawTurn = true
       if (ev.type === 'session/title' && ev.data && typeof ev.data.title === 'string') {
         const kind = ev.data.source && ev.data.source.kind
         if (kind === 'provider') providerTitle = ev.data.title
@@ -172,9 +175,12 @@ function titleFromFile(file) {
     result = {
       title: cleanTitle(providerTitle) || cleanTitle(fallbackTitle) || cleanTitle(anyTitle) || cleanTitle(firstUserText),
       origin,
+      // 空会话：从没跑过对话（没有 turn/start，也没有首条用户消息）。DSH 自己也算 blank，
+      // 这里独立算一遍，因为面板要据此把「新建了没发消息」的会话藏起来。
+      blank: !sawTurn && !firstUserText,
     }
   } catch {
-    result = { title: '', origin: '' }
+    result = { title: '', origin: '', blank: false }
   }
   if (TITLE_CACHE.size > 400) TITLE_CACHE.clear()
   TITLE_CACHE.set(key, result)
@@ -206,21 +212,31 @@ function buildSessionLogIndex(dshHome) {
 
 /**
  * 读视图：列出所有工作区 + 每个工作区下会话的隐藏状态 + 三态归一化 + 会话名称。
- * options.includeAgents=true 时才把智能体（origin === 'subagent'）会话算进来；
- * 默认折叠，三态与计数都只按用户自己的会话计算（否则一屏全是智能体会话）。
+ * 默认只留用户自己真正聊过的会话，折叠两类会话：
+ *   ① 智能体会话（origin === 'subagent'）；
+ *   ② 空会话（blank：从没跑过对话）。
+ * options.includeAgents=true 时把智能体也算进来；options.includeBlank=true 时把空会话也算进来。
+ * 三态与计数都只按保留下来的会话计算。
+ *
+ * 「Mnemon 空闲审查」的父容器（mnemon-review-owner-v1-*）被一并折叠：
+ * 它自己的 header 没有 origin（不是 subagent），但日志里只有一个 subagent/catalog
+ * 事件、没有 turn/start，因此按空会话判定隐藏；真正的审查内容在它指向的
+ * mnemon-review-v1-* 子会话里，那个带 origin=subagent，属于第 ① 类。
  */
 export function readView(dshHome, options = {}) {
   const includeAgents = options.includeAgents === true
+  const includeBlank = options.includeBlank === true
   const ws = readJson(workspacePath(dshHome))
   const arch = readJson(archivePath(dshHome))
   if (!ws || !ws.tables || !ws.tables.workspaces) {
-    return { ok: true, available: false, workspaces: [], includeAgents, agentHidden: 0 }
+    return { ok: true, available: false, workspaces: [], includeAgents, includeBlank, agentHidden: 0, blankHidden: 0 }
   }
   const globalArchived = new Set(Array.isArray(ws.global?.archivedSessionIds) ? ws.global.archivedSessionIds : [])
   const archMap = (arch && arch.workspaces && typeof arch.workspaces === 'object') ? arch.workspaces : {}
   const logIndex = buildSessionLogIndex(dshHome)
   const workspaces = []
   let totalAgents = 0
+  let totalBlank = 0
   for (const [wsId, rec] of Object.entries(ws.tables.workspaces)) {
     if (!rec || typeof rec !== 'object') continue
     const sessionIds = Array.isArray(rec.sessionIds) ? rec.sessionIds.slice() : []
@@ -228,12 +244,22 @@ export function readView(dshHome, options = {}) {
     const workspaceArchived = Boolean(archRec && archRec.archived === true)
     const all = sessionIds.map((sid) => {
       const log = logIndex.get(sid)
-      const meta = log ? titleFromFile(log) : { title: '', origin: '' }
-      return { id: sid, title: meta.title, hidden: globalArchived.has(sid), agent: meta.origin === 'subagent' }
+      const meta = log ? titleFromFile(log) : { title: '', origin: '', blank: false }
+      return {
+        id: sid,
+        title: meta.title,
+        hidden: globalArchived.has(sid),
+        agent: meta.origin === 'subagent',
+        blank: meta.blank === true,
+      }
     })
     const agentCount = all.filter((s) => s.agent).length
+    const blankCount = all.filter((s) => !s.agent && s.blank).length
     totalAgents += agentCount
-    const sessions = includeAgents ? all : all.filter((s) => !s.agent)
+    totalBlank += blankCount
+    // 两道过滤独立生效：智能体一类、空会话一类。
+    let sessions = includeAgents ? all : all.filter((s) => !s.agent)
+    if (!includeBlank) sessions = sessions.filter((s) => !s.blank)
     const hiddenCount = sessions.filter((s) => s.hidden).length
     let state = 'normal'
     if (workspaceArchived) state = 'archive'
@@ -246,13 +272,14 @@ export function readView(dshHome, options = {}) {
       sessionCount: sessions.length,
       hiddenCount,
       agentCount,
+      blankCount,
       state,
       archived: workspaceArchived,
       archivedAt: workspaceArchived && typeof archRec.archivedAt === 'number' ? archRec.archivedAt : 0,
       sessions,
     })
   }
-  return { ok: true, available: true, workspaces, includeAgents, agentHidden: totalAgents }
+  return { ok: true, available: true, workspaces, includeAgents, includeBlank, agentHidden: totalAgents, blankHidden: totalBlank }
 }
 
 /** 切换一个工作区的三态。state ∈ normal | hide-sessions | archive。 */
@@ -373,7 +400,7 @@ function withRegistryHidden(view, registry) {
  * options.registry 传宿主 workspaceRegistry；传 null/undefined 时退回文件写法。
  */
 export async function setWorkspaceStateLive(dshHome, workspaceId, state, options = {}) {
-  const { registry = null, includeAgents = false } = options
+  const { registry = null, includeAgents = false, includeBlank = false } = options
   if (!['normal', 'hide-sessions', 'archive'].includes(state)) {
     throw new Error(`不支持的工作区状态：${state}`)
   }
@@ -426,16 +453,16 @@ export async function setWorkspaceStateLive(dshHome, workspaceId, state, options
     return { ...fallback, live: false, fallbackFrom: 'registry', stopped, errors }
   }
   void results
-  return { ...withRegistryHidden(readView(dshHome, { includeAgents }), registry), live: true, stopped }
+  return { ...withRegistryHidden(readView(dshHome, { includeAgents, includeBlank }), registry), live: true, stopped }
 }
 
 /** 实时隐藏/显示单个会话。 */
 export async function setSessionStateLive(dshHome, sessionId, hidden, options = {}) {
-  const { registry = null, includeAgents = false } = options
+  const { registry = null, includeAgents = false, includeBlank = false } = options
   const live = Boolean(registry && typeof registry.archiveSession === 'function')
   if (!live) {
     return { ...setSessionState(dshHome, sessionId, hidden), live: false }
   }
   const r = await applySessionState(registry, sessionId, hidden)
-  return { ...withRegistryHidden(readView(dshHome, { includeAgents }), registry), live: true, stopped: r.stopped ? 1 : 0 }
+  return { ...withRegistryHidden(readView(dshHome, { includeAgents, includeBlank }), registry), live: true, stopped: r.stopped ? 1 : 0 }
 }
