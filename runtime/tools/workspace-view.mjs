@@ -116,14 +116,18 @@ function cleanTitle(text) {
   return s
 }
 
-/** 从单个会话日志文件提取标题。返回 {title} 并写入缓存。 */
+/**
+ * 从单个会话日志文件提取标题与来源。返回 {title, origin} 并写入缓存。
+ * origin 取自日志首个 `session` 头事件：`subagent` 表示智能体（子）会话，
+ * 面板「工作区显示」卡片默认把它们折叠掉，只留用户自己的会话。
+ */
 function titleFromFile(file) {
   let mtime = 0
-  try { mtime = fs.statSync(file).mtimeMs } catch { return { title: '' } }
+  try { mtime = fs.statSync(file).mtimeMs } catch { return { title: '', origin: '' } }
   const key = `${file}:${mtime}`
   const hit = TITLE_CACHE.get(key)
   if (hit) return hit
-  let result = { title: '' }
+  let result = { title: '', origin: '' }
   try {
     const buf = fs.readFileSync(file)
     let text = ''
@@ -140,10 +144,15 @@ function titleFromFile(file) {
     let fallbackTitle = ''      // fallback 标题（取最后一条）
     let anyTitle = ''           // 无 source 信息的兜底标题（取最后一条）
     let firstUserText = ''
+    let origin = ''             // 会话来源：subagent = 智能体子会话
     for (const line of text.split('\n')) {
       if (!line) continue
       let ev
       try { ev = JSON.parse(line) } catch { continue }
+      if (!origin && ev.type === 'session') {
+        if (typeof ev.origin === 'string') origin = ev.origin
+        else if (ev.data && typeof ev.data.origin === 'string') origin = ev.data.origin
+      }
       if (ev.type === 'session/title' && ev.data && typeof ev.data.title === 'string') {
         const kind = ev.data.source && ev.data.source.kind
         if (kind === 'provider') providerTitle = ev.data.title
@@ -160,9 +169,12 @@ function titleFromFile(file) {
       }
     }
     // 优先级与 DSH 面板一致：provider 正式标题 > fallback > 无来源 title > 首条用户消息
-    result = { title: cleanTitle(providerTitle) || cleanTitle(fallbackTitle) || cleanTitle(anyTitle) || cleanTitle(firstUserText) }
+    result = {
+      title: cleanTitle(providerTitle) || cleanTitle(fallbackTitle) || cleanTitle(anyTitle) || cleanTitle(firstUserText),
+      origin,
+    }
   } catch {
-    result = { title: '' }
+    result = { title: '', origin: '' }
   }
   if (TITLE_CACHE.size > 400) TITLE_CACHE.clear()
   TITLE_CACHE.set(key, result)
@@ -192,27 +204,36 @@ function buildSessionLogIndex(dshHome) {
   return byId
 }
 
-/** 读视图：列出所有工作区 + 每个工作区下会话的隐藏状态 + 三态归一化 + 会话名称。 */
-export function readView(dshHome) {
+/**
+ * 读视图：列出所有工作区 + 每个工作区下会话的隐藏状态 + 三态归一化 + 会话名称。
+ * options.includeAgents=true 时才把智能体（origin === 'subagent'）会话算进来；
+ * 默认折叠，三态与计数都只按用户自己的会话计算（否则一屏全是智能体会话）。
+ */
+export function readView(dshHome, options = {}) {
+  const includeAgents = options.includeAgents === true
   const ws = readJson(workspacePath(dshHome))
   const arch = readJson(archivePath(dshHome))
   if (!ws || !ws.tables || !ws.tables.workspaces) {
-    return { ok: true, available: false, workspaces: [] }
+    return { ok: true, available: false, workspaces: [], includeAgents, agentHidden: 0 }
   }
   const globalArchived = new Set(Array.isArray(ws.global?.archivedSessionIds) ? ws.global.archivedSessionIds : [])
   const archMap = (arch && arch.workspaces && typeof arch.workspaces === 'object') ? arch.workspaces : {}
   const logIndex = buildSessionLogIndex(dshHome)
   const workspaces = []
+  let totalAgents = 0
   for (const [wsId, rec] of Object.entries(ws.tables.workspaces)) {
     if (!rec || typeof rec !== 'object') continue
     const sessionIds = Array.isArray(rec.sessionIds) ? rec.sessionIds.slice() : []
     const archRec = archMap[wsId]
     const workspaceArchived = Boolean(archRec && archRec.archived === true)
-    const sessions = sessionIds.map((sid) => {
+    const all = sessionIds.map((sid) => {
       const log = logIndex.get(sid)
-      const title = log ? titleFromFile(log).title : ''
-      return { id: sid, title, hidden: globalArchived.has(sid) }
+      const meta = log ? titleFromFile(log) : { title: '', origin: '' }
+      return { id: sid, title: meta.title, hidden: globalArchived.has(sid), agent: meta.origin === 'subagent' }
     })
+    const agentCount = all.filter((s) => s.agent).length
+    totalAgents += agentCount
+    const sessions = includeAgents ? all : all.filter((s) => !s.agent)
     const hiddenCount = sessions.filter((s) => s.hidden).length
     let state = 'normal'
     if (workspaceArchived) state = 'archive'
@@ -224,13 +245,14 @@ export function readView(dshHome) {
       path: typeof rec.path === 'string' ? rec.path : '',
       sessionCount: sessions.length,
       hiddenCount,
+      agentCount,
       state,
       archived: workspaceArchived,
       archivedAt: workspaceArchived && typeof archRec.archivedAt === 'number' ? archRec.archivedAt : 0,
       sessions,
     })
   }
-  return { ok: true, available: true, workspaces }
+  return { ok: true, available: true, workspaces, includeAgents, agentHidden: totalAgents }
 }
 
 /** 切换一个工作区的三态。state ∈ normal | hide-sessions | archive。 */
@@ -289,4 +311,131 @@ export function setSessionState(dshHome, sessionId, hidden) {
   ws.global.archivedSessionIds = Array.from(ga)
   writeJsonAtomic(wsPath, ws)
   return readView(dshHome)
+}
+
+/* ===================== 实时通道（0.3.82） =====================
+ * 直接改 JSON 文件只能改磁盘，宿主内存里的 workspaceRegistry.archivedSessionIds
+ * 与 session-list feed 都不会更新 —— 这就是以前「必须重启 DSH 才生效」的原因。
+ *
+ * 正路是走 workspaceRegistry 的三个公开方法：
+ *   registry.archiveSession(id, {stopActivity}) → enqueueOperation → setState
+ *     → global.set(state) 落盘 + storage domain changed
+ *     → api-workspace-controller 的 feed.changed 发布 {type:'archived', archivedSessionIds}
+ *     → 会话列表实时更新，无需重启。
+ *   registry.unarchiveSession(id) 同理。
+ *
+ * registry 拿不到（插件先于 registry 启动、或宿主版本变更）时，自动退回上面的
+ * 纯文件写法并标记 live:false，保证功能不丢，只是需要刷新才生效。
+ */
+
+/** 用 registry 改单个会话的隐藏状态；registry 不可用时返回 {via:'file'}。 */
+async function applySessionState(registry, sessionId, hidden) {
+  if (!registry || typeof registry.archiveSession !== 'function') return { via: 'file', stopped: false }
+  if (hidden) {
+    const already = Array.isArray(registry.archivedSessionIds) && registry.archivedSessionIds.includes(sessionId)
+    if (already) return { via: 'live', stopped: false }
+    try {
+      await registry.archiveSession(sessionId, { stopActivity: false })
+      return { via: 'live', stopped: false }
+    } catch (error) {
+      const text = String((error && (error.code || error.name || error.message)) || '')
+      // 会话正在跑（有活动）时宿主会拒绝；带上 stopActivity 再试一次，先停掉活动再归档。
+      if (/active/i.test(text)) {
+        await registry.archiveSession(sessionId, { stopActivity: true })
+        return { via: 'live', stopped: true }
+      }
+      throw error
+    }
+  }
+  if (typeof registry.unarchiveSession !== 'function') return { via: 'file', stopped: false }
+  await registry.unarchiveSession(sessionId)
+  return { via: 'live', stopped: false }
+}
+
+/** 用 registry 内存里的 archivedSessionIds 修正视图的 hidden 标记（文件可能还没落盘）。 */
+function withRegistryHidden(view, registry) {
+  if (!registry || !Array.isArray(registry.archivedSessionIds)) return view
+  const set = new Set(registry.archivedSessionIds)
+  const workspaces = (view.workspaces || []).map((w) => {
+    const sessions = (w.sessions || []).map((s) => ({ ...s, hidden: set.has(s.id) }))
+    const hiddenCount = sessions.filter((s) => s.hidden).length
+    let state = 'normal'
+    if (w.archived) state = 'archive'
+    else if (hiddenCount > 0 && hiddenCount === sessions.length && sessions.length > 0) state = 'hide-sessions'
+    else if (hiddenCount > 0) state = 'partial'
+    return { ...w, sessions, hiddenCount, state }
+  })
+  return { ...view, workspaces }
+}
+
+/**
+ * 实时切换工作区三态。成功后返回的状态是重新 readView 出来的快照。
+ * options.registry 传宿主 workspaceRegistry；传 null/undefined 时退回文件写法。
+ */
+export async function setWorkspaceStateLive(dshHome, workspaceId, state, options = {}) {
+  const { registry = null, includeAgents = false } = options
+  if (!['normal', 'hide-sessions', 'archive'].includes(state)) {
+    throw new Error(`不支持的工作区状态：${state}`)
+  }
+  const wsPath = workspacePath(dshHome)
+  const archPath = archivePath(dshHome)
+  const ws = readJson(wsPath)
+  if (!ws || !ws.tables || !ws.tables.workspaces || !ws.tables.workspaces[workspaceId]) {
+    throw new Error(`工作区不存在：${workspaceId}`)
+  }
+  const rec = ws.tables.workspaces[workspaceId]
+  const sids = Array.isArray(rec.sessionIds) ? rec.sessionIds.slice() : []
+
+  // 工作区归档记录（session-manager 侧）先按旧写法写好：registry 只管会话级 archivedSessionIds。
+  const arch = readJson(archPath) || { version: 1, workspaces: {} }
+  if (!arch.workspaces || typeof arch.workspaces !== 'object') arch.workspaces = {}
+  if (state === 'archive') {
+    arch.workspaces[workspaceId] = {
+      workspaceId,
+      archived: true,
+      archivedAt: Date.now(),
+      sessionIds: sids,
+      pending: [],
+    }
+  } else {
+    delete arch.workspaces[workspaceId]
+  }
+  writeJsonAtomic(archPath, arch)
+
+  const live = Boolean(registry && typeof registry.archiveSession === 'function')
+  if (!live) {
+    // 没 registry：完全按旧的文件写法（含 global.archivedSessionIds），行为不变。
+    return { ...setWorkspaceState(dshHome, workspaceId, state), live: false }
+  }
+
+  const errors = []
+  let stopped = 0
+  const results = await Promise.all(sids.map(async (sid) => {
+    try {
+      const r = await applySessionState(registry, sid, state !== 'normal')
+      if (r.stopped) stopped += 1
+      return r
+    } catch (error) {
+      errors.push(`${sid}: ${String((error && error.message) || error)}`)
+      return { via: 'error' }
+    }
+  }))
+  if (errors.length > 0) {
+    // 实时通道部分失败：退回文件写法把状态对齐，避免「写了一半」。
+    const fallback = setWorkspaceState(dshHome, workspaceId, state)
+    return { ...fallback, live: false, fallbackFrom: 'registry', stopped, errors }
+  }
+  void results
+  return { ...withRegistryHidden(readView(dshHome, { includeAgents }), registry), live: true, stopped }
+}
+
+/** 实时隐藏/显示单个会话。 */
+export async function setSessionStateLive(dshHome, sessionId, hidden, options = {}) {
+  const { registry = null, includeAgents = false } = options
+  const live = Boolean(registry && typeof registry.archiveSession === 'function')
+  if (!live) {
+    return { ...setSessionState(dshHome, sessionId, hidden), live: false }
+  }
+  const r = await applySessionState(registry, sessionId, hidden)
+  return { ...withRegistryHidden(readView(dshHome, { includeAgents }), registry), live: true, stopped: r.stopped ? 1 : 0 }
 }

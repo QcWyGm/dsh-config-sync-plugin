@@ -28,6 +28,8 @@ import { fileURLToPath } from 'node:url'
 import { runGuard, clearSessionCaches, appendGuardLog } from './runtime/tools/session-cache-guard.mjs'
 // 0.3.76：工作区显示状态（三态 + 会话独立隐藏），自包含读写 DSH 两个权威文件
 import { readView, setWorkspaceState, setSessionState } from './runtime/tools/workspace-view.mjs'
+// 0.3.82：实时通道。拿不到 workspaceRegistry 时，这两个函数内部自动退回上面的文件写法。
+import { setWorkspaceStateLive, setSessionStateLive } from './runtime/tools/workspace-view.mjs'
 
 const pluginRequire = createRequire(import.meta.url)
 
@@ -4036,6 +4038,22 @@ function ctxLoggerInfo(text) {
   try { loggerRef?.info?.(text) } catch { /* 没有 logger 就算了 */ }
 }
 
+/**
+ * 0.3.82：拿宿主的 workspaceRegistry 服务（工作区账本的唯一权威）。
+ * apply 执行时 registry 可能还没 start，热重载又会换实例，所以每次请求都惰性取一遍。
+ */
+let ctxRef = null
+function workspaceRegistryOf() {
+  try {
+    const ctx = ctxRef
+    if (!ctx) return null
+    const reg = typeof ctx.get === 'function' ? ctx.get('workspaceRegistry') : (ctx.workspaceRegistry || null)
+    return reg && typeof reg.archiveSession === 'function' ? reg : null
+  } catch {
+    return null
+  }
+}
+
 const cacheGuardState = {
   timer: null,
   interval: null,
@@ -4214,10 +4232,14 @@ async function handleCacheGuard(req, res, config) {
 }
 
 // 0.3.76：工作区显示状态。自包含读写，不依赖 session-manager API（那个要 owner 凭证）。
+// 0.3.82：改成优先走 workspaceRegistry（宿主服务）→ 落盘同时触发 session-list feed，
+// 面板上切隐藏/显示即时生效；拿不到 registry 时函数内部退回纯文件写法（live:false）。
 async function handleWorkspaceView(req, res, config) {
   const dshHome = dshHomeOf(config)
+  const registry = workspaceRegistryOf()
+  const includeAgents = Boolean(req.url && /[?&]agents=1\b/.test(req.url))
   if (req.method === 'GET') {
-    try { sendJson(res, 200, { ok: true, ...readView(dshHome) }) }
+    try { sendJson(res, 200, { ok: true, ...readView(dshHome, { includeAgents }) }) }
     catch (error) { sendJson(res, 400, { ok: false, error: String((error && error.message) || error) }) }
     return
   }
@@ -4227,13 +4249,14 @@ async function handleWorkspaceView(req, res, config) {
     const raw = await readBody(req)
     const body = raw.trim() ? JSON.parse(raw) : {}
     const action = String(body.action || '')
+    const withAgents = body.includeAgents === true
     if (action === 'workspace') {
-      const view = setWorkspaceState(dshHome, String(body.workspaceId || ''), String(body.state || ''))
+      const view = await setWorkspaceStateLive(dshHome, String(body.workspaceId || ''), String(body.state || ''), { registry, includeAgents: withAgents })
       sendJson(res, 200, { ok: true, ...view })
       return
     }
     if (action === 'session') {
-      const view = setSessionState(dshHome, String(body.sessionId || ''), body.hidden === true)
+      const view = await setSessionStateLive(dshHome, String(body.sessionId || ''), body.hidden === true, { registry, includeAgents: withAgents })
       sendJson(res, 200, { ok: true, ...view })
       return
     }
@@ -4410,6 +4433,7 @@ async function handleFeedback(req, res, config) {
 export function apply(ctx, config) {
   try {
     try { loggerRef = ctx?.logger || null } catch { }
+    try { ctxRef = ctx || null } catch { }
     ctx.inject(['webServer'], (scoped) => {
       // 每个请求按 accept-language 决定返回中文还是英文：AsyncLocalStorage 让 t() 在
       // 任何异步后续里都能读到本次请求的语言，不用把语言参数一层层往下传。

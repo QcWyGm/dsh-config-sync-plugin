@@ -1,10 +1,10 @@
 {
-  "version": "0.3.81",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.81/dsh-config-sync-plugin-0.3.81.tgz",
-  "tgzBytes": 399427,
-  "sha256": "67d5ce251940255ef57306c366e87787993d193380db3cc7354597cc6cb6ab42",
+  "version": "0.3.82",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.82/dsh-config-sync-plugin-0.3.82.tgz",
+  "tgzBytes": 401969,
+  "sha256":"4f1fab70af694d6c86701b5fb6c07f2aab66dd9ca14fc71df94383930bdc49cb",
   "releasedAt": "2026-11-23",
-  "notes": "修复「工作区显示」卡片的会话名称与 DSH 面板不一致：DSH 会话标题会演进（fallback 临时标题 → provider 正式标题），卡片之前取第一条 fallback 就停止；现在按 provider > fallback > 无来源 title > 首条用户消息 的优先级取最新标题，与 DSH 面板显示完全一致。",
-  "notesEn": "Fix session names in the \"Workspace visibility\" card differing from the DSH panel: DSH titles evolve (fallback -> provider). The card previously stopped at the first fallback; it now picks the latest by priority provider > fallback > untagged title > first user message, matching DSH exactly.",
+  "notes": "「工作区显示」卡片两处改动：① 默认折叠智能体（subagent）子会话，一屏只剩你自己的会话，需要时勾「显示智能体」一并列出（本机 99 条会话里有 80 条是智能体的）；② 隐藏/显示不再只改状态文件，改走宿主的 workspaceRegistry，落盘的同时触发会话列表推送，在面板上切换立刻生效，不用重启客户端。宿主服务取不到时自动退回原来的文件写法并在提示里说明。",
+  "notesEn": "Two changes to the \"Workspace visibility\" card: (1) agent (subagent) sessions are collapsed by default so you only see your own sessions — tick \"Show agents\" to list them (80 of 99 sessions on this machine were agent sessions); (2) hide/show no longer writes the state file only — it goes through the host workspaceRegistry, which persists and pushes the session-list update, so toggles take effect immediately without restarting the client. If the host service is unavailable it falls back to the previous file-based write and says so in the hint.",
   "minClient": "0.2.2-rc.2"
 }

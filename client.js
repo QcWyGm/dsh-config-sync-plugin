@@ -503,8 +503,9 @@ window.__ModuleLoader__.load({
     }
 
     /** 工作区显示状态：三态（显示 / 隐藏会话 / 归档工作区）+ 会话级独立隐藏。 */
-    async function callWorkspaceView(payload) {
-      const res = await fetch('/config-sync/workspace-view', payload
+    async function callWorkspaceView(payload, opts) {
+      const query = opts && opts.includeAgents ? '?agents=1' : ''
+      const res = await fetch('/config-sync/workspace-view' + query, payload
         ? {
           method: 'POST',
           cache: 'no-store',
@@ -1604,33 +1605,40 @@ window.__ModuleLoader__.load({
       const [msg, setMsg] = react.useState('')
       const [expanded, setExpanded] = react.useState({})
       const [editing, setEditing] = react.useState({})
+      // 默认折叠智能体（subagent）会话：一屏全是子会话时根本找不到自己的会话。
+      const [showAgents, setShowAgents] = react.useState(false)
 
       const load = react.useCallback(async () => {
         setBusy(true); setErr('')
-        try { setData(await callWorkspaceView()) }
+        try { setData(await callWorkspaceView(null, { includeAgents: showAgents })) }
         catch (e) { setErr(String((e && e.message) || e)) }
         finally { setBusy(false) }
-      }, [])
+      }, [showAgents])
       react.useEffect(() => { load() }, [load])
 
       const changeWorkspace = react.useCallback(async (wsId, state) => {
         setBusy(true); setErr(''); setMsg('')
         try {
-          const d = await callWorkspaceView({ action: 'workspace', workspaceId: wsId, state })
+          const d = await callWorkspaceView({ action: 'workspace', workspaceId: wsId, state, includeAgents: showAgents }, { includeAgents: showAgents })
           setData(d)
-          setMsg(M('已更新工作区显示状态', 'Workspace view state updated'))
+          setMsg(d.live === true
+            ? M('已更新，会话列表已同步', 'Updated — the session list is in sync')
+            : M('已更新；宿主服务暂不可用，已直接写入状态文件', 'Updated; host service unavailable, wrote the state file directly'))
         } catch (e) { setErr(String((e && e.message) || e)) }
         finally { setBusy(false) }
-      }, [])
+      }, [showAgents])
 
       const changeSession = react.useCallback(async (sid, hidden) => {
         setBusy(true); setErr(''); setMsg('')
         try {
-          const d = await callWorkspaceView({ action: 'session', sessionId: sid, hidden })
+          const d = await callWorkspaceView({ action: 'session', sessionId: sid, hidden, includeAgents: showAgents }, { includeAgents: showAgents })
           setData(d)
+          setMsg(d.live === true
+            ? M('已更新，会话列表已同步', 'Updated — the session list is in sync')
+            : M('已更新；宿主服务暂不可用，已直接写入状态文件', 'Updated; host service unavailable, wrote the state file directly'))
         } catch (e) { setErr(String((e && e.message) || e)) }
         finally { setBusy(false) }
-      }, [])
+      }, [showAgents])
 
       const stateLabel = (st) => st === 'archive' ? M('归档', 'Archived')
         : st === 'hide-sessions' ? M('隐藏会话', 'Sessions hidden')
@@ -1652,16 +1660,31 @@ window.__ModuleLoader__.load({
 
       const wss = data.workspaces || []
       const archived = wss.filter(w => w.state === 'archive').length
+      const agentHidden = Number(data.agentHidden || 0)
       return h('div', { style: S.card },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           h('div', { style: S.cardTitle }, M('工作区显示状态', 'Workspace visibility')),
           h('div', { style: { ...S.hint, flex: 1, minWidth: '160px' } },
-            M('点工作区展开会话；点「修改」后才可切换状态。改动写入本机 DSH，重启或刷新会话列表后生效。', 'Click a workspace to expand sessions; click Edit to change states. Changes write to local DSH and take effect after restarting or refreshing the session list.')),
+            M('点工作区展开会话；点「修改」后才可切换状态。改动即时生效，会话列表会跟着变。', 'Click a workspace to expand sessions; click Edit to change states. Changes apply immediately and the session list follows.')),
+          h('label', {
+            style: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' },
+            title: M('默认隐藏智能体（subagent）会话，勾选后一并列出', 'Agent (subagent) sessions are hidden by default; tick to list them too'),
+          },
+            h('input', {
+              type: 'checkbox',
+              checked: showAgents,
+              disabled: busy,
+              onChange: (e) => setShowAgents(e.target.checked === true),
+            }),
+            h('span', null, M('显示智能体', 'Show agents')),
+          ),
           h('button', { type: 'button', style: S.btn, disabled: busy, onClick: load }, busy ? M('刷新中…', 'Refreshing…') : M('刷新', 'Refresh')),
         ),
         msg ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-success-primary, #1a7f37)' } }, msg) : null,
         err ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-error-primary)' } }, err) : null,
-        h('div', { style: S.footnote }, M('共 ' + wss.length + ' 个工作区，' + archived + ' 个已归档；归档的工作区会从列表消失，会话仍保留。', wss.length + ' workspaces, ' + archived + ' archived; archived ones disappear from the list, sessions are kept.')),
+        h('div', { style: S.footnote },
+          M('共 ' + wss.length + ' 个工作区，' + archived + ' 个已归档；归档的工作区会从列表消失，会话仍保留。', wss.length + ' workspaces, ' + archived + ' archived; archived ones disappear from the list, sessions are kept.')
+            + (agentHidden > 0 && !showAgents ? M('已隐藏 ' + agentHidden + ' 条智能体会话。', ' ' + agentHidden + ' agent sessions hidden.') : '')),
         wss.length === 0
           ? h('div', { style: S.footnote }, M('没有工作区。', 'No workspaces.'))
           : h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '2px' } },
