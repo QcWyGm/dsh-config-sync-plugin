@@ -1677,14 +1677,19 @@ console.log('== 配置同步页面 5 点调整 ==')
     && wvSrc.includes('cleanTitle(providerTitle) || cleanTitle(fallbackTitle)')
     && !wvSrc.includes('if (lastTitle) break'), '标题演进：provider > fallback > 无来源 > 首条消息')
   check('会话名称：卡片显示 s.title || s.id', cliSrc.includes('s.title || s.id'), 'client.js 卡片')
-  // 2) 修改按钮：点「修改」才出现三态 select 与会话隐藏按钮
-  check('修改按钮：编辑态才显示三态 select 与会话隐藏按钮',
-    cliSrc.includes('const [editing, setEditing]')
+  // 2) 修改按钮：全卡片只有一个「修改」，进入编辑态后三态 select 与每行的隐藏/显示按钮一起出现
+  check('修改按钮：整卡一个「修改」，编辑态才显示三态 select 与会话隐藏按钮',
+    cliSrc.includes('// 整张卡片只有一个「修改」按钮')
     && cliSrc.includes("M('修改', 'Edit')") && cliSrc.includes("M('完成', 'Done')")
-    && cliSrc.includes('const edit = !!editing[w.workspaceId]')
-    && cliSrc.includes('setEditing(v => ({ ...v, [w.workspaceId]: !edit }))')
+    // 工作区行不再各带一个编辑按钮
+    && !cliSrc.includes('const edit = !!editing[w.workspaceId]')
+    && !cliSrc.includes('setEditing(v => ({ ...v, [w.workspaceId]: !edit }))')
+    // 编辑态由整卡开关控制，且行内下拉与行内按钮都存在
+    && cliSrc.includes('onClick: () => setEditing(v => !v)')
     && cliSrc.includes('changeWorkspace(w.workspaceId, e.target.value)')
-    && cliSrc.includes('changeSession(s.id, !s.hidden)'), 'client.js 编辑态')
+    && cliSrc.includes('changeSession(s.id, !s.hidden)')
+    // 编辑态有明显的说明条与退出按钮
+    && cliSrc.includes("M('编辑中', 'Editing')"), 'client.js 编辑态')
   // 3) 点工作区整行即展开，不再单独展开按钮
   check('点工作区即展开（整行 onClick，无独立展开按钮）',
     cliSrc.includes("onClick: () => setExpanded(e => ({ ...e, [w.workspaceId]: !open }))")

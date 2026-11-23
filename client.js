@@ -1608,7 +1608,9 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = react.useState(false)
       const [msg, setMsg] = react.useState('')
       const [expanded, setExpanded] = react.useState({})
-      const [editing, setEditing] = react.useState({})
+      // 整张卡片只有一个「修改」按钮：进入编辑态后所有工作区与会话一起可改，
+      // 不再每行各带一个按钮（那样按钮多、和会话对不上）。
+      const [editing, setEditing] = react.useState(false)
       // 默认折叠智能体（subagent）会话：一屏全是子会话时根本找不到自己的会话。
       const [showAgents, setShowAgents] = react.useState(false)
       // 默认折叠空会话：建了没聊过、或者只是 Mnemon 空闲审查的父容器，列出只会干扰。
@@ -1668,11 +1670,33 @@ window.__ModuleLoader__.load({
       const archived = wss.filter(w => w.state === 'archive').length
       const agentHidden = Number(data.agentHidden || 0)
       const blankHidden = Number(data.blankHidden || 0)
+      // 编辑态用一条明显的强调色说明条，让「现在可改」这件事一眼可见。
+      const editBanner = editing
+        ? h('div', {
+          style: {
+            display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
+            padding: '7px 10px', borderRadius: '8px',
+            background: 'var(--dsw-alias-state-warn-secondary, transparent)',
+            color: 'var(--dsw-alias-label-primary)',
+            fontSize: '12px', lineHeight: '18px',
+          },
+        },
+          h('span', { style: { fontWeight: 600 } }, M('编辑中', 'Editing')),
+          h('span', { style: { flex: 1, minWidth: '160px' } },
+            M('现在可以改工作区三态和每条会话的显示/隐藏；点「完成」退出编辑。', 'You can change workspace states and toggle each session now; click Done to finish.')),
+          h('button', {
+            type: 'button', style: { ...S.btn, fontWeight: 600 }, disabled: busy,
+            onClick: () => setEditing(false),
+          }, M('完成', 'Done')),
+        )
+        : null
       return h('div', { style: S.card },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           h('div', { style: S.cardTitle }, M('工作区显示状态', 'Workspace visibility')),
           h('div', { style: { ...S.hint, flex: 1, minWidth: '160px' } },
-            M('点工作区展开会话；点「修改」后才可切换状态。改动即时生效，会话列表会跟着变。', 'Click a workspace to expand sessions; click Edit to change states. Changes apply immediately and the session list follows.')),
+            editing
+              ? M('点工作区展开会话；每条会话右侧的按钮就是它自己的显示/隐藏。改动即时生效。', 'Click a workspace to expand sessions; the button on each row toggles that session. Changes apply immediately.')
+              : M('点工作区展开会话；要改状态先点右侧「修改」。改动即时生效，会话列表会跟着变。', 'Click a workspace to expand sessions; click Edit on the right to change states. Changes apply immediately and the session list follows.')),
           h('label', {
             style: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' },
             title: M('默认隐藏空会话（没跑过对话的历史条目）与 Mnemon 空闲审查的父容器，勾选后一并列出', 'Blank sessions (never used) and Mnemon idle-review parents are hidden by default; tick to list them too'),
@@ -1697,8 +1721,17 @@ window.__ModuleLoader__.load({
             }),
             h('span', null, M('显示智能体', 'Show agents')),
           ),
+          // 全卡片唯一的主操作按钮：编辑 / 完成切换（编辑态下高亮，位置不变）
+          h('button', {
+            type: 'button',
+            style: editing ? { ...S.btnPrimary } : { ...S.btn },
+            disabled: busy,
+            onClick: () => setEditing(v => !v),
+            title: editing ? M('退出编辑态', 'Leave edit mode') : M('进入编辑态，才能改状态', 'Enter edit mode to change states'),
+          }, editing ? M('完成', 'Done') : M('修改', 'Edit')),
           h('button', { type: 'button', style: S.btn, disabled: busy, onClick: load }, busy ? M('刷新中…', 'Refreshing…') : M('刷新', 'Refresh')),
         ),
+        editBanner,
         msg ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-success-primary, #1a7f37)' } }, msg) : null,
         err ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-error-primary)' } }, err) : null,
         h('div', { style: S.footnote },
@@ -1710,8 +1743,14 @@ window.__ModuleLoader__.load({
           : h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '2px' } },
             wss.map(w => {
               const open = !!expanded[w.workspaceId]
-              const edit = !!editing[w.workspaceId]
-              return h('div', { key: w.workspaceId, style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: '8px', padding: '8px 10px' } },
+              const wsTone = w.state === 'archive' ? 'warn' : w.state === 'normal' ? 'ok' : 'pull'
+              return h('div', {
+                key: w.workspaceId,
+                style: {
+                  border: '1px solid ' + (editing ? 'var(--dsw-alias-border-l2)' : 'var(--dsw-alias-border-l1)'),
+                  borderRadius: '8px', padding: '8px 10px',
+                },
+              },
                 // 整行可点展开 / 收起（需求3）
                 h('div', {
                   style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', cursor: 'pointer' },
@@ -1720,44 +1759,57 @@ window.__ModuleLoader__.load({
                 },
                   h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', width: '12px' } }, open ? '▾' : '▸'),
                   h('span', { style: { fontSize: '12px', fontWeight: 600, minWidth: '90px' } }, w.title || w.workspaceId.slice(0, 8)),
-                  h('span', { style: chipStyle(w.state === 'archive' ? 'warn' : w.state === 'normal' ? 'ok' : 'pull') }, stateLabel(w.state)),
-                  h('span', { style: { ...S.footnote, flex: 1 } }, M(w.sessionCount + ' 会话 · ' + w.hiddenCount + ' 隐藏', w.sessionCount + ' sessions · ' + w.hiddenCount + ' hidden')),
-                  h('button', {
-                    type: 'button', style: S.btn, disabled: busy,
-                    onClick: (e) => { stop(e); setEditing(v => ({ ...v, [w.workspaceId]: !edit })) },
-                  }, edit ? M('完成', 'Done') : M('修改', 'Edit')),
-                ),
-                // 编辑态才出现三态选择（需求2）
-                edit
-                  ? h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }, onClick: stop },
-                    h('span', { style: S.footnote }, M('工作区状态', 'Workspace state')),
-                    h('select', {
+                  // 非编辑态：状态只作为徽标展示（只读）；
+                  // 编辑态：徽标右侧直接给出三态下拉，改的是这个工作区本身 —— 不再需要行内「修改」按钮。
+                  editing
+                    ? h('select', {
                       value: w.state === 'partial' ? 'partial' : w.state,
                       disabled: busy,
+                      onClick: stop,
                       onChange: (e) => { if (e.target.value !== 'partial') changeWorkspace(w.workspaceId, e.target.value) },
-                      style: { fontSize: '12px', padding: '3px 6px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)' },
+                      title: M('这个工作区的三态', 'State of this workspace'),
+                      style: { fontSize: '12px', padding: '3px 6px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)' },
                     },
                       w.state === 'partial' ? h('option', { value: 'partial' }, stateLabel('partial')) : null,
                       opts.map(([v, label]) => h('option', { key: v, value: v }, label)),
-                    ),
-                  )
-                  : null,
-                // 展开的会话列表：显示会话名（需求1），编辑态才出隐藏/显示按钮（需求2）
+                    )
+                    : h('span', { style: chipStyle(wsTone) }, stateLabel(w.state)),
+                  h('span', { style: { ...S.footnote, flex: 1 } }, M(w.sessionCount + ' 会话 · ' + w.hiddenCount + ' 隐藏', w.sessionCount + ' sessions · ' + w.hiddenCount + ' hidden')),
+                ),
+                // 展开的会话列表：每行是「会话名 + 它自己的开关」，按钮与会话同一行、紧跟其名，
+                // 编辑态下用带词义的按钮文案（隐藏/显示，颜色区分），不再是一个孤零零的按钮。
                 open
                   ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '6px', paddingLeft: '18px' } },
                     (w.sessions || []).length === 0
                       ? h('div', { style: S.footnote }, M('这个工作区还没有会话。', 'No sessions in this workspace.'))
-                      : w.sessions.map(s => h('div', { key: s.id, style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', lineHeight: '18px' } },
+                      : w.sessions.map(s => h('div', {
+                        key: s.id,
+                        style: {
+                          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', lineHeight: '18px',
+                          borderTop: '1px solid var(--dsw-alias-border-l1)',
+                          // 编辑态给整行加底色，视线一眼能把「这一行会话」和「这一行的按钮」框在一起
+                          padding: editing ? '3px 6px' : '3px 0',
+                          borderRadius: editing ? '6px' : 0,
+                          background: editing ? 'var(--dsw-alias-fill-l1, var(--dsw-alias-border-l1))' : 'transparent',
+                        },
+                      },
                         h('span', {
-                          style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: s.hidden ? 'var(--dsw-alias-label-tertiary)' : 'var(--dsw-alias-label-secondary)' },
+                          style: {
+                            flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            color: s.hidden ? 'var(--dsw-alias-label-tertiary)' : 'var(--dsw-alias-label-secondary)',
+                            textDecoration: s.hidden ? 'line-through' : 'none',
+                          },
                           title: (s.title || s.id) + '\n' + s.id,
                         }, s.title || s.id),
-                        s.hidden
-                          ? h('span', { style: { ...S.footnote, color: 'var(--dsw-alias-label-tertiary)' } }, M('已隐藏', 'Hidden'))
-                          : null,
-                        edit
+                        // 按钮与会话同行、等宽右对齐：换行也不会跑到别的会话旁边
+                        editing
                           ? h('button', {
-                            type: 'button', style: S.btn, disabled: busy,
+                            type: 'button',
+                            style: s.hidden
+                              ? { ...S.btn, minWidth: '56px', color: 'var(--dsw-alias-state-success-primary, #1a7f37)' }
+                              : { ...S.btn, minWidth: '56px', color: 'var(--dsw-alias-state-error-primary)' },
+                            disabled: busy,
+                            title: (s.hidden ? M('让这条会话重新显示在列表里', 'Make this session visible again') : M('把这条会话从列表隐藏', 'Hide this session from the list')) + '\n' + (s.title || s.id),
                             onClick: () => changeSession(s.id, !s.hidden),
                           }, s.hidden ? M('显示', 'Show') : M('隐藏', 'Hide'))
                           : null,
