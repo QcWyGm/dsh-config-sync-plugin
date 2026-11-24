@@ -1,10 +1,10 @@
 {
-  "version": "0.3.92",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.92/dsh-config-sync-plugin-0.3.92.tgz",
-  "tgzBytes":419140,
-  "sha256":"c7c931c03732d89e0abc6104a077dd28e467ef91a01c8bdc19d9dd0c617630fd",
+  "version": "0.3.93",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.93/dsh-config-sync-plugin-0.3.93.tgz",
+  "tgzBytes":422887,
+  "sha256":"9d8ed93de04c22ad0aaacb95b0ea8e057af54139a4940df0b0f948642b198ce6",
   "releasedAt": "2026-11-24",
-  "notes": "远端「未提交」现在纳入本机待同步数据：后端 status 的 repo 对象新增 pending 与 uncommitted（dirty+pending），面板两处「远端」Kv 改用 uncommitted 并显示「本机待同步 N」，本机新会话/配置改动立即体现在数字上，不必等退出 DSH capture。摘要行「刷新」按钮改为先 check（触发 git fetch 更新远端引用）再刷新，展开时的 30 秒自动刷新复用同一条链。",
-  "notesEn": "Remote \"uncommitted\" now includes local pending changes: the status repo object gains pending and uncommitted (dirty+pending); both \"Remote\" Kv rows use uncommitted and show \"N pending on this machine\", so new local session/config changes appear immediately without waiting for DSH exit + capture. The summary-row \"Refresh\" button now runs check (triggering git fetch to refresh remote refs) before refreshing, and the 30s auto-refresh while expanded shares the same chain.",
+  "notes": "点右上角 × 关闭 DSH（最后一个可见窗口关闭）时，插件先判一次自动拉取/推送并排好 watcher，再退出客户端：勾了开关、在两次 2 分钟复查之间做了改动就关闭，也不再漏执行。拉取优先（云端领先就排，关闭场景不弹确认框）、推送按领先/未提交/本机待同步三来源判据，复用在途 watcher、空仓只拉；排队在 app.quit() 之前 await，autoRestart 语义统一为 !== false（默认重启）。",
+  "notesEn": "Clicking the top-right × to close DSH (last visible window closed) now makes the plugin check once for auto pull/push and queue the watcher before the client exits: enabling a switch and making changes between the 2-minute re-checks then closing no longer skips the sync. Pull takes priority (behind > 0 queues a pull, no confirmation dialog on the close path); push uses the same commits-ahead/uncommitted/local-pending criteria; in-flight watchers are reused and an empty repo only pulls. Queueing is awaited before app.quit(), and autoRestart semantics are unified to !== false (relaunch by default).",
   "minClient": "0.2.2-rc.2"
 }

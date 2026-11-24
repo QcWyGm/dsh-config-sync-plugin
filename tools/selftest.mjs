@@ -1749,22 +1749,62 @@ console.log('== 0.3.86：本机数据挪进待办 + 会话显示会话名 + 按�
     && idxSrc.includes('zh: PENDING_GROUP_LABEL[id]?.[0]')
     && idxSrc.includes('groups,')
     && idxSrc.includes('sample: [], groups: []'), 'index.js localPending 返回值')
-  // 2) 客户端：本机数据从「本机仓库」卡挪进「待办」
+  // 2) 客户端：待办去掉「本机数据」字眼，按分组可展开看具体名称
   const localDataHits = cliSrc.split("M('本机数据', 'Local data')").length - 1
-  check('本机数据只出现在待办卡（从本机仓库卡移除）',
-    localDataHits === 1
-    && cliSrc.includes('const localBlock = data && data.local && data.local.known')
-    && cliSrc.includes('localBlock,'), 'client.js 待办装配')
-  check('待办里按同步内容分组显示，并列出会话名样本',
+  check('待办去掉「本机数据」字眼（0.3.90）',
+    localDataHits === 0, 'client.js 无 Local data 文案')
+  check('待办装配：localBlock 挂到待办卡',
+    cliSrc.includes('const localBlock = data && data.local && data.local.known')
+    && cliSrc.includes('pendingDetailOpen ? localBlock'), 'client.js 待办装配')
+  check('待办按同步内容分组、点分组展开具体名称（会话名/profile 文件）',
     cliSrc.includes('langIsZh() ? g.zh : g.en')
     && cliSrc.includes('g.count')
-    && cliSrc.includes('最近写入：')
-    && cliSrc.includes('local.sample.join'), 'client.js 分组展示')
+    && cliSrc.includes('const items = Array.isArray(g.items) ? g.items : []')
+    && cliSrc.includes('setPendingOpen')
+    && cliSrc.includes('还有 ${g.count - items.length} 项未列出'), 'client.js 分组展开')
+  check('待办卡有展开/收起总开关（默认展开）',
+    cliSrc.includes('const [pendingDetailOpen, setPendingDetailOpen] = react.useState(true)')
+    && cliSrc.includes('pendingDetailOpen ? localBlock'), 'client.js 待办总开关')
+  check('顶部跳转按钮跟随当前分区高亮（0.3.90）',
+    cliSrc.includes('const [activeSection, setActiveSection] = react.useState')
+    && cliSrc.includes('const active = activeSection === sid')
+    && cliSrc.includes("querySelectorAll('[id^=\"sync-section-\"]')")
+    && cliSrc.includes('ref: bodyRef'), 'client.js 跳转高亮')
   check('分组标签与同步内容一致（会话记录/技能/插件数据/记忆数据）',
     idxSrc.includes("conversations: ['会话记录', 'Conversations']")
     && idxSrc.includes("skills: ['Skills', 'Skills']")
     && idxSrc.includes("'plugin-data': ['插件数据', 'Plugin data']")
     && idxSrc.includes("mnemon: ['记忆数据', 'Memory data']"), '分组口径')
+}
+console.log('')
+console.log('== 0.3.93：点 × 关闭时判一次并排队自动拉取/推送 ==')
+{
+  const idxSrc = existsSync(join(pluginRootSelf, 'index.js')) ? readFileSync(join(pluginRootSelf, 'index.js'), 'utf8') : ''
+  // 1) 新增退出前排队函数：读开关 / 复用在途 watcher / 空仓只拉 / 拉取优先 / 判据同 scheduleAutoStart
+  check('退出前排队函数存在且读 autoPull/autoPush 开关',
+    /async function triggerAutoSyncOnClose\(config\)/.test(idxSrc)
+    && /if \(!settings\.autoPull && !settings\.autoPush\) return/.test(idxSrc), 'index.js triggerAutoSyncOnClose')
+  check('已有在途 watcher 时复用、不重复拉起',
+    /autoState\.pending[\s\S]{0,200}isProcessAlive\(autoState\.pending\.watcherPid\)[\s\S]{0,120}reused: true/.test(idxSrc), 'index.js 复用守卫')
+  check('本机仓库为空时仅 autoPull 可排队初始化',
+    /phase !== 'ok'[\s\S]{0,320}settings\.autoPull && phase === 'empty'/.test(idxSrc), 'index.js 空仓分支')
+  check('退出前拉取优先：云端领先就排 pull（且不弹确认框）',
+    /settings\.autoPull && drift\.behind > 0[\s\S]{0,420}mode: 'pull'/.test(idxSrc)
+    && /退出前检查：云端领先/.test(idxSrc), 'index.js 拉取优先')
+  check('退出前 push 判据与 scheduleAutoStart 一致（领先/未提交/本机待同步）',
+    /const shouldPush = drift\.ahead > 0 \|\| dirty > 0 \|\| \(lp\.known && lp\.pending > 0\)/.test(idxSrc)
+    && /if \(shouldPush\)/.test(idxSrc), 'index.js push 判据')
+  check('退出前排队的 restart 语义统一为 autoRestart !== false',
+    /function triggerAutoSyncOnClose[\s\S]{0,2600}settings\.autoRestart !== false/.test(idxSrc)
+    && !/function triggerAutoSyncOnClose[\s\S]{0,2600}settings\.autoRestart === true/.test(idxSrc), 'index.js autoRestart')
+  // 2) 关闭钩子：接 config、quit 之前 await 排队、再 quit；apply 内传 config
+  check('关闭钩子接住 config（installQuitWhenAllWindowsClosed(ctx, config)）',
+    /function installQuitWhenAllWindowsClosed\(ctx, config\)/.test(idxSrc)
+    && /installQuitWhenAllWindowsClosed\(ctx, config\)/.test(idxSrc), 'index.js 钩子签名与调用点')
+  check('点 × 无可见窗口时先 await 退出前排队、再 app.quit()',
+    /await triggerAutoSyncOnClose\(config\)[\s\S]{0,600}el\.app\.quit\(\)/.test(idxSrc), 'index.js 排队先于 quit')
+  check('排队成功写日志：退出后立即执行',
+    /退出前已排队 \$\{r\.mode\}（自动同步）/.test(idxSrc), 'index.js 排队日志')
 }
 process.exit(failures === 0 ? 0 : 1)
 

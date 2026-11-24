@@ -257,6 +257,14 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Clicking × to close DSH now checks once for auto pull/push immediately (0.3.93)
+
+With "Pull on startup" or "Push on exit" enabled, the only queues used to be the 8-second startup check and the 2-minute re-check. If you made changes between two re-checks and then clicked the top-right × to close DSH, no watcher was waiting for the exit at that moment, so nothing ran after closing. A quit hook now covers it: when the last visible window closes (the × click), the plugin checks once and queues the watcher **before** the client exits; once the DSH processes are gone the watcher runs the pull/push immediately.
+
+1. **Check once on exit**: when no visible windows remain, call `triggerAutoSyncOnClose(config)`, which reads the `autoPull`/`autoPush` switches; an in-flight watcher is reused rather than relaunched; with an empty local repo only autoPull can queue (first clone).
+2. **Same criteria as the re-check**: pull takes priority (behind > 0 → queue pull, no confirmation dialog on the close path); push queues when any of "commits ahead / uncommitted changes / local data newer than last sync" hits; `autoRestart` semantics unified to `!== false` (relaunch by default).
+3. **Queue before quit**: the queue must be awaited **before** `app.quit()` — the plugin dies with the main process, so checking after quit is too late. With both switches off / nothing to sync the function returns quickly and does not slow down closing; a successful queue logs "queued pull/push before exit …: runs right after DSH exits".
+
 ### Remote "uncommitted" now includes local pending changes + Refresh really fetches (0.3.92)
 
 Root cause found by measurement for "remote info still not updating": the git-level behind/ahead really is 0 (local HEAD matches the gitee cloud), while what the user means by "not updated" is the runtime-generated changes on this machine not yet captured into the repo. Two substantive fixes:
@@ -584,8 +592,8 @@ Default exclusions (50 entries, edit freely): `*.db` / `*.db-*` / `*.sqlite*` / 
 
 | Switch | Behaviour |
 |---|---|
-| Pull on startup | 8 s after start, a read-only `git fetch` comparison; behind > 0 → system confirmation dialog (Yes/No) → "Yes" **exits the whole client family right away** (measured: processes gone within 5 s) → a visible window runs the pull → relaunches automatically |
-| Push on exit | **queued when any of three sources hit**: local commits ahead, uncommitted changes, local data newer than the last sync (new sessions etc). Re-checked every 2 minutes after start, no duplicate watcher while queued; pushes only after DSH fully exits, then relaunches |
+| Pull on startup | 8 s after start, a read-only `git fetch` comparison; behind > 0 → system confirmation dialog (Yes/No) → "Yes" **exits the whole client family right away** (measured: processes gone within 5 s) → a visible window runs the pull → relaunches automatically. Clicking × to close also checks once and queues (0.3.93; no confirmation dialog on the close path — behind > 0 queues the pull) |
+| Push on exit | **queued when any of three sources hit**: local commits ahead, uncommitted changes, local data newer than the last sync (new sessions etc). Re-checked every 2 minutes after start, and checked once more when × closes the window (0.3.93), no duplicate watcher while queued; pushes only after DSH fully exits, then relaunches |
 
 - The work is done by `runtime\post-exit.ps1 -Phase wait`, which the plugin launches as a **hidden** process to watch for the client exiting; only after it really exits does it start a **visible** `-Phase run` window titled "DSH 配置同步 · 拉取/推送". **No window while queued** — otherwise an empty window would sit in the way from boot to shutdown.
 - When the repo is not in place yet (empty folder included) the startup check simply skips and does **not** record a failure — an empty folder is only waiting for the first pull.
@@ -704,6 +712,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-24 | 0.3.93 | Clicking × to close DSH now checks once for auto pull/push and queues the watcher immediately (no more waiting for the 2-minute window); autoRestart semantics unified to !== false |
 | 2026-11-24 | 0.3.92 | Remote "uncommitted" now includes local pending data (pending); Refresh button really triggers git fetch; fixes "remote figures always 0" |
 | 2026-11-24 | 0.3.91 | Settings summary row fetches before refreshing remote info (no longer stale, auto-refresh every 30s); four generate-script buttons replaced with Pull/Push now (closes DSH) sharing the automation queue |
 | 2026-11-24 | 0.3.90 | Jump tabs highlight the current section; "Local data" label removed from To-do; To-do expands to concrete session names and local profile files |

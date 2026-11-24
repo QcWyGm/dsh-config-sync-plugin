@@ -3525,6 +3525,84 @@ function scheduleAutoStart(config) {
   } catch { }
 }
 
+/**
+ * 用户点右上角 × 关闭 DSH 时，立即判一次自动拉取/推送并排好 watcher（0.3.93）。
+ *
+ * 为什么要单独做：原来开关只在 scheduleAutoStart 的 8 秒首检 + 每 2 分钟复查里判，
+ * 用户勾了开关、做了改动，没等到下一次复查就点 × 关掉 —— 那一刻没有任何 watcher 在排队，
+ * 退出后自然什么都不执行，看着就像"勾了没用"。现在把「判一次并排队」接到关闭钩子上：
+ * 点 × → 这里同步判一次 → 拉起独立 watcher → app.quit()，watcher 在 DSH 退出后照常执行，
+ * 语义和手动「立即拉取/推送」完全一致。
+ *
+ * 关闭场景窗口都在关了，不弹确认框；autoPull 仍只在云端确实领先（或本机仓库还没内容）时才排队，
+ * 免得没更新也白拉一次还把客户端重启回来。和 scheduleAutoStart 一样「拉取优先，二者只排一个」。
+ */
+async function triggerAutoSyncOnClose(config) {
+  const dshHome = config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh')
+  try {
+    const settings = readSettings(dshHome)
+    if (!settings.autoPull && !settings.autoPush) return { queued: false }
+    // 已经排过队（2 分钟复查 / 手动按钮）就别重复拉起 watcher：spawnWatcher 的锁也会挡，这里先省一次开销
+    if (autoState.pending && isProcessAlive(autoState.pending.watcherPid)) {
+      return { queued: false, reused: true, mode: autoState.pending.mode }
+    }
+    const repo = resolveRepo(config?.repoPath, dshHome).repo || ''
+    if (!repo) return { queued: false }
+    const appRoot = resolveAppRoot(config?.appRoot) || ''
+    const phase = repoPhase(repo)
+
+    // 本机仓库还没内容：autoPull 可以直接排队（sync.ps1 首次 clone），autoPush 不行（要先确认云端为空）
+    if (phase !== 'ok') {
+      if (settings.autoPull && phase === 'empty') {
+        const restart = settings.autoRestart !== false
+        const started = await spawnWatcher({ mode: 'pull', repo, appRoot, dshHome, restart })
+        if (!started.ok) return { queued: false, error: started.error }
+        autoState.pending = { mode: 'pull', at: Date.now(), reasonZh: '本机仓库为空，拉取初始化', reasonEn: 'Empty local repo — pull to initialize', restart, watcherPid: started.pid }
+        return { queued: true, mode: 'pull' }
+      }
+      return { queued: false }
+    }
+
+    const drift = await checkDrift(repo)
+    if (!drift) return { queued: false }
+
+    // 拉取优先，和 scheduleAutoStart 一致；关闭时不再弹确认框，云端领先就排
+    if (settings.autoPull && drift.behind > 0) {
+      const restart = settings.autoRestart !== false
+      const started = await spawnWatcher({ mode: 'pull', repo, appRoot, dshHome, restart })
+      if (!started.ok) return { queued: false, error: started.error }
+      autoState.pending = {
+        mode: 'pull', at: Date.now(), restart, watcherPid: started.pid,
+        reasonZh: `退出前检查：云端领先 ${drift.behind} 个提交`, reasonEn: `Checked on exit: ${drift.behind} commit(s) behind`,
+      }
+      return { queued: true, mode: 'pull' }
+    }
+
+    if (settings.autoPush) {
+      // 判据和 scheduleAutoStart 完全相同：领先提交 / 未提交改动 / 本机资料比上次同步新
+      let dirty = 0
+      const raw = await git(repo, ['status', '--porcelain'])
+      if (raw) dirty = raw.split('\n').filter((l) => l.trim()).length
+      const syncState = readSyncState(dshHome)
+      const lp = localPending(dshHome, syncState.lastSyncAt, config?.profileName, { repo, appRoot })
+      const shouldPush = drift.ahead > 0 || dirty > 0 || (lp.known && lp.pending > 0)
+      if (shouldPush) {
+        const restart = settings.autoRestart !== false
+        const reasonZh = drift.ahead > 0 ? `领先 ${drift.ahead} 个提交` : dirty > 0 ? `未提交 ${dirty} 项` : `本机 ${lp.pending} 个文件比上次同步新`
+        const reasonEn = drift.ahead > 0 ? `${drift.ahead} commit(s) ahead` : dirty > 0 ? `${dirty} uncommitted change(s)` : `${lp.pending} file(s) newer than the last sync`
+        const started = await spawnWatcher({ mode: 'push', repo, appRoot, dshHome, restart })
+        if (!started.ok) return { queued: false, error: started.error }
+        autoState.pending = { mode: 'push', at: Date.now(), reason: reasonZh, reasonZh, reasonEn, restart, watcherPid: started.pid }
+        return { queued: true, mode: 'push' }
+      }
+    }
+    return { queued: false }
+  } catch (error) {
+    logLaunch(dshHome, `退出前自动同步排队失败：${(error && error.message) || error}`)
+    return { queued: false }
+  }
+}
+
 async function handlePrepare(req, res, config) {
   if (req.method !== 'POST') { sendJson(res, 405, { ok: false, error: 'POST only' }); return }
   if (!originAllowed(req)) { sendJson(res, 403, { ok: false, error: 'cross-origin request rejected' }); return }
@@ -4624,7 +4702,7 @@ export function apply(ctx, config) {
     // 云端探测预热：插件一装上就去探一次（不阻塞、不 await）。这样面板打开时缓存多半已经热了，
     // status 不用再为首屏那 2.5 秒的 ls-remote 埋单。
     typeof setTimeout === 'function' ? setTimeout(() => { try { warmRemoteProbe(config) } catch { } }, 300) : null
-    installQuitWhenAllWindowsClosed(ctx)
+    installQuitWhenAllWindowsClosed(ctx, config)
     // 0.3.76：会话投影缓存守卫的定时扫描（默认开，设置里可关）
     scheduleCacheGuard(config)
   } catch (error) {
@@ -4641,7 +4719,7 @@ export function apply(ctx, config) {
  * 而「退出后自动推送」的守护进程只认"主进程 pid 消失"——于是永远等不到，推送不执行。
  * 这里在窗口 closed 后查一遍：一个可见窗口都没有了就 app.quit()。
  */
-function installQuitWhenAllWindowsClosed(ctx) {
+function installQuitWhenAllWindowsClosed(ctx, config) {
   try {
     const el = electronApp()
     if (!el) return
@@ -4651,11 +4729,20 @@ function installQuitWhenAllWindowsClosed(ctx) {
     el.app.on('browser-window-created', (_event, win) => {
       try {
         win.on('closed', () => {
-          setTimeout(() => {
+          setTimeout(async () => {
             try {
               const alive = el.BrowserWindow.getAllWindows().filter((w) => w && !w.isDestroyed())
               const visible = alive.filter((w) => { try { return w.isVisible() } catch { return false } })
               if (visible.length === 0) {
+                // 0.3.93：退出前判一次自动拉取/推送并排好 watcher，再 quit。
+                // 必须在 app.quit() 之前 await：插件随主进程退出而消失，quit 后再判就来不及排队了。
+                // 开关都关 / 没有待同步内容时这个函数很快返回，不影响关闭速度。
+                try {
+                  const r = await triggerAutoSyncOnClose(config)
+                  if (r && r.queued) {
+                    try { ctx.logger?.info?.(`[${PACKAGE_ID}] 退出前已排队 ${r.mode}（自动同步）：DSH 退出后立即执行`) } catch { }
+                  }
+                } catch { }
                 try { ctx.logger?.info?.(`[${PACKAGE_ID}] 已无可见窗口，退出客户端（好让退出后同步开始）`) } catch { }
                 el.app.quit()
               }
