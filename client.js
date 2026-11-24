@@ -3456,9 +3456,44 @@ window.__ModuleLoader__.load({
 
     /** 设置 → 通用 里的一行摘要（保留入口，不重复大面板）。 */
     function ConfigSyncRow() {
-      const { data, err, busy, made, refresh, prepare } = useSync()
+      const { data, err, busy, refresh } = useSync()
       const [open, setOpen] = react.useState(false)
+      const [actBusy, setActBusy] = react.useState('')
+      const [actMsg, setActMsg] = react.useState('')
+      const [actErr, setActErr] = react.useState('')
       const summary = summarize(data)
+      const repo = (data && data.repo) || {}
+      const canPull = repo.pullAllowed === true
+      const canPush = repo.pushAllowed === true
+
+      // 远端信息不更新的根因：inspect() 的落后/领先数来自 git rev-list HEAD...@{upstream}，
+      // 而 @{upstream} 只有 git fetch 之后才反映云端最新，光 refresh() 拿到的还是旧引用。
+      // 所以展开这里先打一次 /config-sync/auto {action:'check'}（它会 fetch 云端更新远端引用），
+      // 再 refresh() 拉新快照；展开期间每 30 秒重复一次。
+      react.useEffect(() => {
+        if (!open) return
+        let alive = true
+        const refreshRemoteNow = async () => {
+          try { await callAuto({ action: 'check' }) } catch { /* 离线就按本机缓存显示，不打扰 */ }
+          if (alive) refresh()
+        }
+        refreshRemoteNow()
+        const timer = setInterval(refreshRemoteNow, 30000)
+        return () => { alive = false; clearInterval(timer) }
+      }, [open, refresh])
+
+      // 立即拉取 / 立即推送：和大面板「自动同步」卡同一条 /config-sync/auto 队列，
+      // 点完排队、关掉 DSH 后由 post-exit.ps1 真正执行（本进程不自己动手）。
+      const actNow = async (action) => {
+        setActBusy(action); setActErr(''); setActMsg('')
+        try {
+          const res = await callAuto({ action })
+          setActMsg(res.closeRequested
+            ? M('已排队：客户端马上关闭，退出后执行；拉取完成后按设置自动重开', 'Queued: the client closes now and the sync runs after exit; it relaunches per your settings when pulling finishes')
+            : M('已排队：退出 DSH 后自动执行', 'Queued: runs automatically after DSH exits'))
+          refresh()
+        } catch (e) { setActErr(String((e && e.message) || e)) } finally { setActBusy('') }
+      }
 
       const head = h('div', { style: S.head },
         h('div', { style: S.headText },
@@ -3508,12 +3543,23 @@ window.__ModuleLoader__.load({
           data && data.remote ? h(Kv, { k: M('SSH 私钥', 'SSH key'), v: data.remote.sshKey || M('（未配置）', '(not set)') }) : null,
           data ? h(Advice, { items: data.advice }) : null,
           h('div', { style: S.actions },
-            h('button', { type: 'button', style: S.btnPrimary, disabled: busy || !data || !data.repo.exists, onClick: () => prepare('all') }, M('一键生成 推送 / 拉取 / 还原', 'Generate push / pull / restore')),
-            h('button', { type: 'button', style: S.btn, disabled: busy || !data || !data.repo.exists, onClick: () => prepare('push') }, M('只生成推送', 'Push only')),
-            h('button', { type: 'button', style: S.btn, disabled: busy || !data || !data.repo.exists, onClick: () => prepare('pull') }, M('只生成拉取', 'Pull only')),
-            h('button', { type: 'button', style: S.btn, disabled: busy || !data || !data.repo.exists, onClick: () => prepare('restore') }, M('只生成还原', 'Restore only')),
+            h('button', {
+              type: 'button',
+              style: canPull ? S.btnPrimary : { ...S.btnPrimary, opacity: 0.5, cursor: 'not-allowed' },
+              disabled: Boolean(actBusy) || !canPull,
+              title: canPull ? '' : M('云端还是空的：没有内容可拉，先「立即推送」', 'The cloud is still empty — nothing to pull, push first'),
+              onClick: () => actNow('pull-now'),
+            }, actBusy === 'pull-now' ? M('排队中…', 'Queueing…') : M('立即拉取（会关闭 DSH）', 'Pull now (closes DSH)')),
+            h('button', {
+              type: 'button',
+              style: canPush ? S.btnPrimary : { ...S.btnPrimary, opacity: 0.5, cursor: 'not-allowed' },
+              disabled: Boolean(actBusy) || !canPush,
+              title: canPush ? '' : M('本机还是空的、云端已有内容：先「立即拉取」', 'The local repo is empty while the cloud has content — pull first'),
+              onClick: () => actNow('push-now'),
+            }, actBusy === 'push-now' ? M('排队中…', 'Queueing…') : M('立即推送（会关闭 DSH）', 'Push now (closes DSH)')),
           ),
-          h(MadeNote, { made }),
+          actErr ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-error-primary)' } }, actErr) : null,
+          actMsg ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-success-primary)' } }, actMsg) : null,
         ),
       )
     }

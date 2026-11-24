@@ -257,6 +257,13 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Settings → General → Config Sync: live remote info + Pull/Push now buttons (0.3.91)
+
+Two adjustments to the "Settings → General → Config Sync" summary row:
+
+1. **Remote info no longer stale**: expanding the row first requests the `check` action on `/config-sync/auto` (triggering `git fetch` to refresh `@{upstream}`) and then refreshes status, so "behind X · ahead Y · uncommitted Z" shows the latest cloud figures instead of stale ones; it refreshes every 30 seconds while expanded and stops when collapsed. Root cause: the behind/ahead counts from `@{upstream}` only update after a fetch — a plain status read never triggers one.
+2. **Buttons replaced with Pull/Push now**: the four "Generate scripts / push only / pull only / restore only" buttons are replaced by two — **Pull now (closes DSH)** and **Push now (closes DSH)** — sharing the same `pull-now` / `push-now` queue as the main panel's Automation card: clicking queues the action, which runs after DSH exits. Buttons are gated by backend permissions (`pullAllowed` / `pushAllowed`) with hints (empty repo → push first; empty cloud → pull first), and queued/result states give Chinese feedback. The script-generation entry remains on the main panel and is no longer duplicated in the summary row.
+
 ### To-do and jump-tab display cleanup (0.3.90)
 
 Four display adjustments to the panel:
@@ -690,6 +697,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-24 | 0.3.91 | Settings summary row fetches before refreshing remote info (no longer stale, auto-refresh every 30s); four generate-script buttons replaced with Pull/Push now (closes DSH) sharing the automation queue |
 | 2026-11-24 | 0.3.90 | Jump tabs highlight the current section; "Local data" label removed from To-do; To-do expands to concrete session names and local profile files |
 | 2026-11-24 | 0.3.89 | Plugin update card shows an "npm download URL"; falls back to two npm sources (mirror + official) when GitHub release is unreachable, still verified against the authoritative sha256 |
 | 2026-11-23 | 0.3.86 | Moved "Local data" into Overview / To-do, grouped pending files by the twelve sync-content groups, and show session names instead of session ids in the sample |
