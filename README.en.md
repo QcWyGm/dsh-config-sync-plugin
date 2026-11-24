@@ -257,6 +257,15 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Clean up cross-restart stale watchers — the lock can no longer be held by an old instance (0.3.94)
+
+A deeper cause was measured behind "switches enabled, clicking × still triggers nothing": after a plugin update restarts DSH, the watcher queued before the update is still waiting on the **old, already-dead DSH process** (WatchPid is gone), but the post-exit "a process with this name still exists" guard keeps it from starting. It hangs in the wait phase and holds `~/.dsh/auto-sync.lock` forever. When × queues a new watcher, it sees a live pid with the same mode in the lock, assumes "the same sync is already waiting" and reuses it — reusing a watcher that will never run, so nothing appears to happen. Two fixes:
+
+1. **Lock records watchPid and checks for staleness before reuse**: `auto-sync.lock` now stores `{pid, mode, watchPid: current DSH pid, at}`. Before reusing a lock, spawnWatcher checks whether `watchPid` is still alive: a missing watchPid (old lock) or an exited DSH means stale — kill the old watcher, clear the lock, and re-queue. Only when both DSH and watcher are alive and the mode matches is the watcher reused.
+2. **post-exit wait phase self-clears stale watchers**: when WatchPid has exited but processes with the DSH name remain, compare their start times — if they are all newer than this waiter, the DSH we waited for already exited and restarted, so this watcher is a leftover from the previous generation: log it, remove its own lock, and `exit 3` to yield, instead of waiting 30 minutes and hogging the lock.
+
+`post-exit.ps1` is also mirrored into the config repo's runtime copies so the repo fallback script carries the same fix.
+
 ### Clicking × to close DSH now checks once for auto pull/push immediately (0.3.93)
 
 With "Pull on startup" or "Push on exit" enabled, the only queues used to be the 8-second startup check and the 2-minute re-check. If you made changes between two re-checks and then clicked the top-right × to close DSH, no watcher was waiting for the exit at that moment, so nothing ran after closing. A quit hook now covers it: when the last visible window closes (the × click), the plugin checks once and queues the watcher **before** the client exits; once the DSH processes are gone the watcher runs the pull/push immediately.
@@ -712,6 +721,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-24 | 0.3.94 | Fix cross-restart stale watchers holding the lock: lock records watchPid, reuse checks staleness, stale locks are killed and re-queued; post-exit wait self-clears stale watchers; fixes "switches on, clicking × still triggers nothing" |
 | 2026-11-24 | 0.3.93 | Clicking × to close DSH now checks once for auto pull/push and queues the watcher immediately (no more waiting for the 2-minute window); autoRestart semantics unified to !== false |
 | 2026-11-24 | 0.3.92 | Remote "uncommitted" now includes local pending data (pending); Refresh button really triggers git fetch; fixes "remote figures always 0" |
 | 2026-11-24 | 0.3.91 | Settings summary row fetches before refreshing remote info (no longer stale, auto-refresh every 30s); four generate-script buttons replaced with Pull/Push now (closes DSH) sharing the automation queue |

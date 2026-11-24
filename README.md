@@ -277,6 +277,15 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 清理跨重启僵死 watcher，锁不再被旧实例占死（0.3.94）
+
+实测「勾了开关、点 × 关闭还是不触发」还有一个更深的原因：插件更新流程重启 DSH 后，更新前排的那个 watcher 还在等**已经退出的旧 DSH 进程**（WatchPid 已死），却被 post-exit 的「进程名还有新实例」判断挡着不敢开工，于是僵死在 wait 段、一直占着 `~/.dsh/auto-sync.lock`。此时点 × 新排的 watcher 看到锁里 pid 存活且同为 push，就误判「同一个同步正在等」直接复用——复用的是一个永远不会执行的僵死 watcher，所以看着像彻底没触发。这次两处修复：
+
+1. **锁记录 watchPid、复用前查僵死**：`auto-sync.lock` 现在写入 `{pid, mode, watchPid: 当前 DSH pid, at}`。spawnWatcher 复用锁前先看 `watchPid` 是否还活着：watchPid 缺失（旧版锁）或对应 DSH 已退出 → 判定僵死，杀掉旧 watcher、清锁、重新排；只有 DSH 与 watcher 都还活着，且 mode 相同才复用。
+2. **post-exit wait 段自清过期 watcher**：当 WatchPid 已退出、而进程名还有实例时，比较这批 DSH 进程的启动时间——若它们全部晚于本等待进程，说明我们等的那次 DSH 早已退出重启，本 watcher 属于上一代残留：写日志、清掉自己那把锁、`exit 3` 让位，不再死等 30 分钟霸占锁。
+
+配套把 `post-exit.ps1` 同步进配置仓库的执行体镜像，保证走仓库兜底脚本时也是同一份修复。
+
 ### 点 × 关闭 DSH 时立即判一次自动拉取/推送（0.3.93）
 
 勾了「启动时自动拉取」或「退出时自动推送」后，原来只有启动后的 8 秒首检 + 每 2 分钟复查会排队。如果你在两次复查之间做了改动就点右上角 × 关闭，那一刻没有 watcher 在等退出，关闭后什么都不会执行。现在补上退出钩子：点 ×（最后一个可见窗口关闭）时插件先判一次并排好 watcher，再退出客户端；DSH 进程归零后 watcher 立刻执行拉取/推送。
@@ -694,6 +703,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 | 日期 | 版本 | 要点 |
 |---|---|---|
+| 2026-11-24 | 0.3.94 | 修复跨重启僵死 watcher 占锁：锁记 watchPid、复用前查僵死、旧锁杀掉重排；post-exit wait 段过期 watcher 自清让位；解决「勾了开关点 × 仍不触发」 |
 | 2026-11-24 | 0.3.93 | 点 × 关闭 DSH 时立即判一次自动拉取/推送并排队 watcher，不再等 2 分钟复查窗口；autoRestart 语义统一为 !== false |
 | 2026-11-24 | 0.3.92 | 远端「未提交」纳入本机待同步数据（pending），刷新按钮真正触发 git fetch；解决「远端数字一直是 0」 |
 | 2026-11-24 | 0.3.91 | 设置-通用-配置同步摘要行展开时先 fetch 再刷新远端信息（不再陈旧、每 30 秒自动刷新）；四个生成脚本按钮换成「立即拉取/推送（会关闭 DSH）」两个，走自动同步同一队列 |

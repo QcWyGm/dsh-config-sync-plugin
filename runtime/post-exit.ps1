@@ -1,4 +1,4 @@
-﻿<#
+<#
 退出后执行同步：等 DSH 完全退出，再跑 pull 或 push（插件在 DSH 进程里，自己等不了自己退出）
 
 由插件在 DSH 运行期用 detached 方式拉起：
@@ -64,6 +64,29 @@ if ($Phase -eq 'wait') {
     $byName = @(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue)
     $byPid = if ($WatchPid -gt 0) { Get-Process -Id $WatchPid -ErrorAction SilentlyContinue } else { $null }
     if ($byName.Count -eq 0 -and -not $byPid) { WaitLog 'DSH 已完全退出'; break }
+
+    # 僵死 watcher 自清：WatchPid（排队那次的 DSH）已经退出，但进程名还有实例 ——
+    # 若这些实例全部是本 watcher 启动之后才起来的，说明我们等的那次 DSH 早就退出并重启过了，
+    # 本 watcher 属于上一代残留。继续等只会被「进程名还有新实例」挡住、死等 30 分钟还霸占锁，
+    # 让新排的 watcher（带当前 DSH pid）无法复用/接管。这里主动退出并清锁，把位置让出来。
+    # 正常场景不会误伤：排队时 DSH 已在运行，其进程启动时间一定早于本 watcher。
+    if ($WatchPid -gt 0 -and -not $byPid -and $byName.Count -gt 0) {
+      $myStart = (Get-Process -Id $PID -ErrorAction SilentlyContinue).StartTime
+      if ($myStart) {
+        $newerAll = @($byName | Where-Object { $_.StartTime -and $_.StartTime -ge $myStart })
+        if ($newerAll.Count -eq $byName.Count) {
+          WaitLog ('WatchPid {0} 已退出，现存 DSH 均为本等待启动后的新实例，判定为过期 watcher，退出让位' -f $WatchPid)
+          try {
+            $lockFile = Join-Path $DshHome 'auto-sync.lock'
+            if (Test-Path -LiteralPath $lockFile) {
+              $lock = Get-Content -LiteralPath $lockFile -Raw -Encoding utf8 | ConvertFrom-Json
+              if ($lock -and $lock.pid -eq $PID) { Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue }
+            }
+          } catch { }
+          exit 3
+        }
+      }
+    }
 
     # 用户点了窗口右上角的关闭、前台窗口全没了，但进程赖着不走（实测 7 个进程全部 hwnd=0 还活着）。
     # 不能只看「曾经出现过窗口」——等待进程可能是在窗口关掉之后才起来的（实测就这么漏判了），

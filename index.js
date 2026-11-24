@@ -1630,17 +1630,27 @@ async function spawnWatcher({ mode, repo, appRoot, dshHome, restart, extraArgs =
     if (isFile(lockFile)) {
       const lockText = readFileSync(lockFile, 'utf8')
       const lockPid = Number((lockText.match(/"pid"\s*:\s*(\d+)/) || [])[1])
+      const lockWatchPid = Number((lockText.match(/"watchPid"\s*:\s*(\d+)/) || [])[1])
       if (lockPid > 0) {
         let alive = false
         try { process.kill(lockPid, 0); alive = true } catch { alive = false }
-        if (alive) {
-          const lockMode = (lockText.match(/"mode"\s*:\s*"([a-z]+)"/) || [])[1]
-          // 同一种同步已经在等，直接复用，别再加一个并行的
+        const lockMode = (lockText.match(/"mode"\s*:\s*"([a-z]+)"/) || [])[1]
+        // 僵死判定：锁文件没记 watchPid（旧版本锁），或记的 DSH pid 已经不在了。
+        // 场景：插件更新重启后，旧 watcher 还在等已经死掉的旧 DSH 进程，却被「进程名还有新实例」
+        // 挡着不敢开工，一直占着锁。此时它永远不会执行，必须杀掉重排，绝不能复用。
+        let watcherOwnerAlive = false
+        if (lockWatchPid > 0) { try { process.kill(lockWatchPid, 0); watcherOwnerAlive = true } catch { watcherOwnerAlive = false } }
+        const stale = !lockWatchPid || !watcherOwnerAlive
+        if (alive && !stale) {
+          // 锁里的 DSH 还活着、watcher 也在 → 才是真正「同一个同步正在等」，可以直接复用
           if (lockMode === mode) return { ok: true, pid: lockPid, reused: true }
           // 不同的同步正在等（例如首检排了推送、用户在确认框点了拉取）：用户的手动动作优先，
           // 干掉那个还没开工的等待进程，改排这一次。它此时只可能在等 DSH 退出，没有副作用。
           try { process.kill(lockPid) } catch { }
           logLaunch(dshHome, `取消上一个等待中的 ${lockMode || '同步'}（pid ${lockPid}），改排 ${mode}`)
+        } else if (alive && stale) {
+          try { process.kill(lockPid) } catch { }
+          logLaunch(dshHome, `清理僵死 watcher（pid ${lockPid}，其 DSH pid ${lockWatchPid || '未记录'} 已退出），改排 ${mode}`)
         }
       }
       try { unlinkSync(lockFile) } catch { }
@@ -1689,7 +1699,7 @@ async function spawnWatcher({ mode, repo, appRoot, dshHome, restart, extraArgs =
   const pid = Number(String(stdout).trim().split(/\s+/).pop()) || 0
   autoState.watcherStartedAt = Date.now()
   try {
-    writeFileSync(lockFile, JSON.stringify({ pid, mode, at: Date.now() }), 'utf8')
+    writeFileSync(lockFile, JSON.stringify({ pid, mode, watchPid: process.pid, at: Date.now() }), 'utf8')
   } catch { }
   logLaunch(dshHome, `已启动 ${mode} pid=${pid} exe=${exe} script=${script}`)
   return { ok: true, pid }
@@ -3542,7 +3552,9 @@ async function triggerAutoSyncOnClose(config) {
   try {
     const settings = readSettings(dshHome)
     if (!settings.autoPull && !settings.autoPush) return { queued: false }
-    // 已经排过队（2 分钟复查 / 手动按钮）就别重复拉起 watcher：spawnWatcher 的锁也会挡，这里先省一次开销
+    // 已经排过队（2 分钟复查 / 手动按钮）就别重复拉起 watcher：spawnWatcher 的锁也会挡，这里先省一次开销。
+    // 注意：这里只信 autoState.pending（本进程内、一定带当前 DSH pid 的新 watcher）。跨重启的旧锁
+    // 不带 autoState.pending，仍会往下走；由 spawnWatcher 里的僵死判定负责清理，绝不在这一步复用。
     if (autoState.pending && isProcessAlive(autoState.pending.watcherPid)) {
       return { queued: false, reused: true, mode: autoState.pending.mode }
     }

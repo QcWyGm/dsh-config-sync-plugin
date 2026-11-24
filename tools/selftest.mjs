@@ -1806,5 +1806,29 @@ console.log('== 0.3.93：点 × 关闭时判一次并排队自动拉取/推送 =
   check('排队成功写日志：退出后立即执行',
     /退出前已排队 \$\{r\.mode\}（自动同步）/.test(idxSrc), 'index.js 排队日志')
 }
+console.log('')
+console.log('== 0.3.94：清理跨重启僵死 watcher，锁不再被旧实例占死 ==')
+{
+  const idxSrc = existsSync(join(pluginRootSelf, 'index.js')) ? readFileSync(join(pluginRootSelf, 'index.js'), 'utf8') : ''
+  const postSrc = existsSync(join(pluginRuntime, 'post-exit.ps1')) ? readFileSync(join(pluginRuntime, 'post-exit.ps1'), 'utf8') : ''
+  check('锁文件写入 watchPid=当前 DSH pid',
+    /JSON\.stringify\(\{ pid, mode, watchPid: process\.pid, at: Date\.now\(\) \}\)/.test(idxSrc), 'index.js 写锁')
+  check('复用前先判定锁是否僵死：读取 lockWatchPid',
+    /"watchPid"\\s\*:\\s\*\(\\d\+\)/.test(idxSrc)
+    || idxSrc.includes('const lockWatchPid = Number('), 'index.js 读 watchPid')
+  check('僵死判定：watchPid 缺失或其进程已退出',
+    idxSrc.includes('const stale = !lockWatchPid || !watcherOwnerAlive')
+    && /process\.kill\(lockWatchPid, 0\)/.test(idxSrc), 'index.js stale 判定')
+  check('只在锁未僵死时才复用同 mode 的 watcher',
+    /if \(alive && !stale\)[\s\S]{0,300}?if \(lockMode === mode\) return/.test(idxSrc), 'index.js 复用守卫')
+  check('僵死锁会被杀掉并记日志，不再复用',
+    /else if \(alive && stale\)/.test(idxSrc)
+    && idxSrc.includes('清理僵死 watcher'), 'index.js 清僵死')
+  check('post-exit wait：WatchPid 已死但进程名有新实例时判定过期 watcher',
+    postSrc.includes('-not $byPid -and $byName.Count -gt 0')
+    && postSrc.includes('判定为过期 watcher'), 'post-exit.ps1 过期判定')
+  check('post-exit wait：过期 watcher 清自己的锁并 exit 3 让位',
+    /\$lock\.pid -eq \$PID/.test(postSrc) && /\bexit 3\b/.test(postSrc), 'post-exit.ps1 让位')
+}
 process.exit(failures === 0 ? 0 : 1)
 
