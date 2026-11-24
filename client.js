@@ -2560,6 +2560,12 @@ window.__ModuleLoader__.load({
                   ? M('已配置（只存本机）', 'Set (stored on this machine only)')
                   : M('未配置（私有库会读不到清单）', 'Not set (private repos cannot be read)'),
               }),
+              u.remote && u.remote.npmTgz
+                ? h(Kv, {
+                    k: M('npm 下载路径', 'npm download URL'),
+                    v: u.remote.npmTgz,
+                  })
+                : null,
             ),
           h('div', { style: S.footnote },
             M(

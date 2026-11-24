@@ -2151,14 +2151,28 @@ function compareVersion(a, b) {
 }
 
 /**
- * 清单里 tgz 可以写相对路径（releases/xxx.tgz）。下载地址按"读到清单的那个源"优先，
- * 其余镜像依次兜底 —— 清单通了不代表包一定也能从同一个域名下下来。
+ * 0.3.87：npm registry 的 tarball 地址。npm 包与 GitHub release 的 tgz 是同一份发布产物
+ * （实测两者 sha256 完全一致），所以 GitHub release 下载不通时能自动从 npm 镜像取，
+ * 清单里的权威 sha256 照常校验，不会因换源而放松校验。
+ */
+function npmTgzUrl(version) {
+  const v = String(version || '').replace(/[^0-9A-Za-z.+\-]/g, '')
+  return v ? `https://registry.npmmirror.com/dsh-config-sync-plugin/-/dsh-config-sync-plugin-${v}.tgz` : ''
+}
+
+/**
+ * 清单里 tgz 可以写相对路径（releases/xxx.tgz），也可以是绝对 GitHub release 地址。
+ * 下载地址按"读到清单的那个源"优先，其余镜像依次兜底；末尾追加 npm 镜像作为最终兜底
+ * —— GitHub release 整段不通时（国内常见），仍能走 npm 把包下下来。
  */
 function resolveTgzCandidates(manifest, manifestUrl = '') {
   const tgz = String((manifest && manifest.tgz) || '')
-  if (!tgz) return []
-  // 清单里写了绝对地址就照它来，不替用户猜镜像
-  if (/^https?:\/\//i.test(tgz)) return [tgz]
+  const npmTgz = npmTgzUrl(manifest && manifest.version)
+  const withNpm = (list) => (npmTgz && !list.includes(npmTgz) ? [...list, npmTgz] : list)
+  // 清单没给 tgz 时，也留 npm 这一条路（有版本就能拼出 tarball）
+  if (!tgz) return npmTgz ? [npmTgz] : []
+  // 清单里写了绝对地址：先照它来，末尾追加 npm 兜底（0.3.87 起不再直接 return）
+  if (/^https?:\/\//i.test(tgz)) return withNpm([tgz])
   const rel = tgz.replace(/^\.?\//, '')
   const bases = []
   const actual = String(manifestUrl || '').replace(/[^/]*$/, '')
@@ -2167,7 +2181,7 @@ function resolveTgzCandidates(manifest, manifestUrl = '') {
     const base = cand.replace(/[^/]*$/, '')
     if (base && !bases.includes(base)) bases.push(base)
   }
-  return bases.map((base) => base + rel)
+  return withNpm(bases.map((base) => base + rel))
 }
 
 /** version.json 里的 tgz 可以写相对路径（releases/xxx.tgz），拼在仓库 raw 根上。 */
@@ -2294,6 +2308,8 @@ function updatePayload(state, settings = {}) {
       notesEn: String(remote.notesEn || ''),
       releasedAt: String(remote.releasedAt || ''),
       tgz: resolveTgzUrl(remote, state.url),
+      // 0.3.87：GitHub release 不通时的 npm 兜底下载地址，面板上单独显示一行
+      npmTgz: npmTgzUrl(remote.version),
       sha256: String(remote.sha256 || ''),
     } : null,
     hasUpdate: remote ? compareVersion(remote.version, PLUGIN_VERSION) > 0 : false,
