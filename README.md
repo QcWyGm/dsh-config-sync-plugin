@@ -277,6 +277,14 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 点 × 检测到待同步就主动退出 DSH 并立即执行（0.3.97）
+
+0.3.96 的信标已经能「点 × 判一次并排好 watcher」，但 watcher 进入 `wait` 后是**被动等 DSH 进程全部消失**才开工。实测点 × 后 DSH 常残留 7 个进程（插件就跑在其中的 host 子进程里），单靠正常关闭流程经常关不干净，watcher 只能干等到 30 分钟超时——表现为「排了队但迟迟不动」。这次补上最后一环：
+
+1. **主动强制退出**：`handleAutoExit` 一旦 `triggerAutoSyncOnClose` 返回 `queued:true`（确实有待拉取/待推送），立即调 `forceCloseDshDetached`——从**独立 detached 进程**用 `taskkill /IM "DeepSeek Harness.exe" /F` 整族强杀（中间用 `ping -n 3` 留 2 秒给正常关闭落盘）。必须在独立进程里做：强杀会把插件自己（host 子进程）也带走，任何挂在插件进程内的 `setTimeout` 都来不及执行。
+2. **只在真有待同步时才退出**：`if (result && result.queued)` 守卫——没待同步就点 × 不会误杀 DSH；有待同步才「退出 + 拉取/推送」一气呵成。
+3. **防回归**：selftest 断言 detached 强杀、`/IM /F`、排队后调用与 queued 守卫。
+
 ### 页面卸载信标取代 Electron 关窗钩子，真正修好「点 × 不触发」（0.3.96）
 
 0.3.95 修好 BOM（watcher 不再启动即崩）后，「点 × 还是不触发」的真凶才浮出水面：**Electron 关窗钩子根本没装成功**。两条铁证——插件实际跑在 host 子进程（`dsh-desktop-host`，`--expose-internals` 的 node 进程），`require('electron')` 拿不到 `app`，`electronApp()` 返回 null，`installQuitWhenAllWindowsClosed` 一进来 `if (!el) return` 直接退出；并且就算拿得到，`browser-window-created` 在插件 `apply` 时窗口早已建好，那个事件再也不会触发，`closed` 回调永不执行。所以从 0.3.93 加的「点 × 判一次」这条链**从未真正跑过**（launch.log 无新 watcher、钩子日志 0 命中）。这次彻底换路：
@@ -719,6 +727,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 | 日期 | 版本 | 要点 |
 |---|---|---|
+| 2026-11-25 | 0.3.97 | 点 × 检测到待拉取/待推送后，从独立进程主动强制退出 DSH 进程族（detached taskkill /F），watcher 立刻执行，不再干等残留进程 |
 | 2026-11-24 | 0.3.96 | 页面卸载信标（pagehide→sendBeacon /auto-exit）取代失效的 Electron 关窗钩子，fast 判据（本地 tracking ref、不 fetch）毫秒级排队 watcher，真正修好「点 × 不触发」 |
 | 2026-11-24 | 0.3.95 | 修复 post-exit.ps1 丢 UTF-8 BOM 致 PS5.1 按 GBK 解码、55 处语法错启动即崩：三处执行体补回 BOM，selftest 加全量 ps1 BOM 断言防回归 |
 | 2026-11-24 | 0.3.94 | 修复跨重启僵死 watcher 占锁：锁记 watchPid、复用前查僵死、旧锁杀掉重排；post-exit wait 段过期 watcher 自清让位；解决「勾了开关点 × 仍不触发」 |

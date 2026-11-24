@@ -1887,5 +1887,22 @@ console.log('== 0.3.96：页面卸载信标（sendBeacon）绕开 Electron 关�
     /var offBeacon = installExitBeacon\(\)/.test(cliSrc)
     && /ctx\.effect\(function \(\) \{ return function \(\) \{ try \{ offBeacon\(\) \}/.test(cliSrc), 'client.js apply 安装')
 }
+console.log('')
+console.log('== 0.3.97：检测到待拉取/待推送就主动强制退出 DSH，watcher 立刻执行 ==')
+{
+  const idxSrc = existsSync(join(pluginRootSelf, 'index.js')) ? readFileSync(join(pluginRootSelf, 'index.js'), 'utf8') : ''
+  check('新增 forceCloseDshDetached 独立进程强制退出函数',
+    /function forceCloseDshDetached\(config\)/.test(idxSrc), 'index.js forceCloseDshDetached')
+  check('强制退出用 detached + unref 独立进程（强杀不会带走插件自己）',
+    /spawn\(cmd, \['\/c', script\][\s\S]{0,120}?detached: true/.test(idxSrc)
+    && /child\.unref\?\.\(\)/.test(idxSrc), 'index.js detached 强杀')
+  check('taskkill /IM /F 整族强杀 DeepSeek Harness',
+    /taskkill[\s\S]{0,80}?\/IM[\s\S]{0,80}?\/F/.test(idxSrc)
+    || /"\/IM"[\s\S]{0,120}?"\/F"/.test(idxSrc), 'index.js taskkill /F')
+  check('auto-exit 排队成功后调用 forceCloseDshDetached',
+    /if \(result && result\.queued\) forceCloseDshDetached\(config\)/.test(idxSrc), 'index.js 排队后主动退出')
+  check('只在 queued 时才强制退出（无待同步不误杀 DSH）',
+    /result && result\.queued[\s\S]{0,60}?forceCloseDshDetached/.test(idxSrc), 'index.js queued 守卫')
+}
 process.exit(failures === 0 ? 0 : 1)
 

@@ -1,10 +1,10 @@
 {
-  "version": "0.3.96",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.96/dsh-config-sync-plugin-0.3.96.tgz",
-  "tgzBytes":433107,
-  "sha256":"c611a9837bdd01aa58b2a141237f9f0094699a8721cb81e995c7af08b9fc361c",
-  "releasedAt": "2026-11-24",
-  "notes": "修复「点 × 关闭不触发自动拉取/推送」的真凶：Electron 关窗钩子是死结——插件跑在 host 子进程里拿不到 electron.app，且 browser-window-created 事件在插件 apply 时窗口早建好就错过了，closed 回调永不执行，所以 0.3.93 起那条链从未真正触发过。改为前端页面卸载信标：pagehide/beforeunload → navigator.sendBeacon('/config-sync/auto-exit') → 后端新路由 fast 判一次（只读本地 tracking ref、不 git fetch，毫秒级返回，避免插件随 DSH 退出被杀前来不及排队）→ spawnWatcher，watcher 独立存活，DSH 进程全消失后由 post-exit.ps1 执行 pull/push。selftest/clientcheck 加断言防回归。保留 0.3.93/0.3.94/0.3.95 的全部修复。",
-  "notesEn": "Fix the real cause of 'closing × still does not trigger auto pull/push': the Electron close hook is a dead end — the plugin runs in the host child process with no electron.app, and browser-window-created fired long before plugin apply, so the closed callback never ran and the chain added in 0.3.93 never actually triggered. Replaced with a page-unload beacon: pagehide/beforeunload → navigator.sendBeacon('/config-sync/auto-exit') → a new backend route that checks once in fast mode (local tracking ref only, no git fetch, millisecond return, so the plugin can queue before DSH kills it) → spawnWatcher; the watcher lives independently and post-exit.ps1 runs pull/push after all DSH processes exit. selftest/clientcheck assertions added to prevent regression. Keeps all 0.3.93/0.3.94/0.3.95 fixes.",
+  "version": "0.3.97",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.97/dsh-config-sync-plugin-0.3.97.tgz",
+  "tgzBytes":435395,
+  "sha256":"875d36c2a9a8c007f11dff8254d751ffdc6e8a3a2246705e9e18e79488e3847c",
+  "releasedAt": "2026-11-25",
+  "notes": "点 × 检测到待拉取/待推送后主动退出 DSH 并立即执行：0.3.96 的信标已经能判一次并排好 watcher，但 watcher 进入 wait 后是被动等 DSH 进程全消失才开工，实测点 × 常残留 7 个进程、只能干等到 30 分钟超时。这次补上最后一环：handleAutoExit 一旦 triggerAutoSyncOnClose 返回 queued:true（确实有待同步），立即从独立 detached 进程用 taskkill /IM \"DeepSeek Harness.exe\" /F 整族强杀（ping -n 3 留 2 秒给正常关闭落盘），watcher 立刻进入 run。必须在独立进程做——强杀会带走插件自己（host 子进程），插件进程内的 setTimeout 来不及执行；且只在 queued 时才退出，没待同步点 × 不误杀 DSH。selftest 加断言防回归。保留 0.3.93/0.3.94/0.3.95/0.3.96 全部修复。",
+  "notesEn": "Clicking × with pending changes now actively exits DSH and syncs immediately: 0.3.96's beacon could check once and queue the watcher, but the watcher then sat in wait passively waiting for all DSH processes to disappear; in practice clicking × leaves 7 orphaned processes and the watcher idled until its 30-minute timeout. This version closes the last gap: once triggerAutoSyncOnClose returns queued:true (something is really pending), handleAutoExit immediately force-kills the whole DSH process family from an independent detached process via taskkill /IM \"DeepSeek Harness.exe\" /F (ping -n 3 gives ~2s for the normal close to flush). It must run detached — force-killing takes down the plugin itself (host child), so no in-plugin setTimeout would survive; and it only fires when queued, so clicking × with nothing pending won't kill DSH. selftest assertions added. Keeps all 0.3.93/0.3.94/0.3.95/0.3.96 fixes.",
   "minClient": "0.2.2-rc.2"
 }

@@ -257,6 +257,14 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Clicking × with pending changes now actively exits DSH and syncs immediately (0.3.97)
+
+In 0.3.96 the beacon could "check once on × and queue the watcher", but the watcher then sat in `wait`, **passively waiting for all DSH processes to disappear** before working. In practice clicking × leaves 7 orphaned processes (the plugin itself runs in one of them, the host child), so the normal close path often fails to clean up and the watcher just idles until its 30-minute timeout — appearing as "queued but nothing happens". This version closes the last gap:
+
+1. **Active force-exit**: once `triggerAutoSyncOnClose` returns `queued:true` (there really are pending pull/push), `handleAutoExit` immediately calls `forceCloseDshDetached` — from an **independent detached process** it runs `taskkill /IM "DeepSeek Harness.exe" /F` to kill the whole process family (with a `ping -n 3` ~2s grace period for the normal close to flush state first). This must run in a separate process: force-killing takes down the plugin itself (host child), so no `setTimeout` inside the plugin process would survive long enough to fire.
+2. **Only when something is actually pending**: guarded by `if (result && result.queued)` — clicking × with nothing to sync won't kill DSH; with pending changes, exit + pull/push happen in one shot.
+3. **Regression guards**: selftest asserts the detached force-kill, `/IM /F`, the call after queuing, and the queued guard.
+
 ### Page-unload beacon replaces the Electron close hook, finally fixing "× does not trigger" (0.3.96)
 
 After 0.3.95 fixed the BOM (watcher no longer crashes on launch), the real culprit behind "closing × still does not trigger" surfaced: **the Electron close hook never got installed**. Two ironclad facts — the plugin actually runs in the host child process (`dsh-desktop-host`, a `--expose-internals` node process), so `require('electron')` has no `app`, `electronApp()` returns null and `installQuitWhenAllWindowsClosed` bails at `if (!el) return`; and even if it had `el`, `browser-window-created` fired long before plugin `apply`, so that event never fires again and the `closed` callback never runs. So the "check once on ×" chain added in 0.3.93 **never actually ran** (no new watcher in launch.log, zero hook logs). This version changes tack completely:
@@ -737,6 +745,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-25 | 0.3.97 | Clicking × with pending pull/push actively force-kills the DSH process family from a detached process (detached taskkill /F); the watcher runs immediately instead of waiting for orphaned processes |
 | 2026-11-24 | 0.3.96 | Page-unload beacon (pagehide→sendBeacon /auto-exit) replaces the dead Electron close hook; fast check (local tracking ref, no fetch) queues the watcher in milliseconds, finally fixing "× does not trigger" |
 | 2026-11-24 | 0.3.95 | Fix post-exit.ps1 losing UTF-8 BOM (PS5.1 decoded as GBK, 55 syntax errors, crashed on launch): restored BOM on all three executors, selftest adds full ps1 BOM assertion to prevent regression |
 | 2026-11-24 | 0.3.94 | Fix cross-restart stale watchers holding the lock: lock records watchPid, reuse checks staleness, stale locks are killed and re-queued; post-exit wait self-clears stale watchers; fixes "switches on, clicking × still triggers nothing" |

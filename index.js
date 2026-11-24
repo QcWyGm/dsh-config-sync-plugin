@@ -1769,6 +1769,35 @@ function closeDsh() {
   return true
 }
 
+/**
+ * 0.3.97：页面卸载信标检测到「待拉取/待推送」后，主动、强制退出 DSH 进程族，
+ * 让刚排好的 watcher 立刻从 wait 进入 run，而不是干等用户把 DSH 关干净（实测常残留 7 个进程，
+ * 之前只能等 post-exit 的 30 分钟超时）。
+ *
+ * 决定性约束：必须在 detached 的独立进程里做延迟强杀 —— 插件就跑在 DSH 的 host 子进程里，
+ * 强杀会把插件自己也带走，任何挂在插件进程内的 setTimeout 都来不及执行。
+ * 用 cmd /c + ping 做秒级延时（timeout.exe 在无控制台的非交互进程里会报错），
+ * 先给点 × 触发的正常关闭流程一点时间落盘，再 /F 兜底残留进程。
+ */
+function forceCloseDshDetached(config) {
+  const dshHome = config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh')
+  const sys = process.env.SystemRoot || 'C:\\Windows'
+  const cmd = join(sys, 'System32', 'cmd.exe')
+  const taskkill = join(sys, 'System32', 'taskkill.exe')
+  const imageName = 'DeepSeek Harness.exe'
+  // ping -n 3 ≈ 2s：给正常关闭 + watcher 读锁的余量，之后 /F 强杀残留进程族
+  const script = `ping -n 3 127.0.0.1 >nul & "${taskkill}" /IM "${imageName}" /F`
+  try {
+    const child = spawn(cmd, ['/c', script], { stdio: 'ignore', windowsHide: true, detached: true })
+    try { child.unref?.() } catch { }
+    logLaunch(dshHome, `auto-exit：已排队同步，触发强制退出 DSH 进程族（${imageName} /F，独立进程延迟强杀）`)
+    return true
+  } catch (error) {
+    logLaunch(dshHome, `auto-exit：触发退出失败：${(error && error.message) || error}`)
+    return false
+  }
+}
+
 function isProcessAlive(pid) {
   if (!pid) return false
   try { process.kill(pid, 0); return true } catch { return false }
@@ -3655,6 +3684,10 @@ async function handleAutoExit(req, res, config) {
     // sendBeacon 的 body 可能是空 / text/plain / application/json，读不读都不影响排队；容错读一下即可。
     try { await readBody(req) } catch { }
     const result = await triggerAutoSyncOnClose(config, { fast: true })
+    // 0.3.97：检测到待拉取/待推送并排好 watcher 后，主动强制退出 DSH 进程族，
+    // watcher 立刻从 wait 进入 run；不再干等用户关干净（残留进程会让同步卡到 30 分钟超时）。
+    // 必须在独立进程里做——强杀会带走插件自己（插件跑在 DSH 的 host 子进程）。
+    if (result && result.queued) forceCloseDshDetached(config)
     sendJson(res, 200, { ok: true, ...result })
   } catch (error) {
     logLaunch(config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh'),
