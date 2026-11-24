@@ -1,8 +1,8 @@
 {
   "version": "0.3.91",
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.91/dsh-config-sync-plugin-0.3.91.tgz",
-  "tgzBytes":417235,
-  "sha256":"297d104503710a08e2c7a24b6b030fa26fb32bde006110d9ecf5408518018fcc",
+  "tgzBytes":417766,
+  "sha256":"b793ea28c2c5e805e41fd8aef965a3546af3f1c96376fb10550ddc1f1030d903",
   "releasedAt": "2026-11-24",
   "notes": "设置-通用-配置同步摘要行：展开时先请求 check 触发 git fetch 更新 @{upstream} 再刷新，远端「落后/领先/未提交」显示云端最新值而非旧值，展开期间每 30 秒自动刷新、收起即停；四个「生成脚本」按钮换成「立即拉取（会关闭 DSH）」与「立即推送（会关闭 DSH）」两个，走主面板自动同步同一条 pull-now / push-now 队列，按后端门禁置灰并给中文提示。",
   "notesEn": "Settings → General → Config Sync summary row: expanding now requests check to trigger a git fetch (refresh @{upstream}) before refreshing, so remote behind/ahead/uncommitted figures show the latest cloud values instead of stale ones, auto-refreshing every 30s while expanded; the four generate-script buttons are replaced by Pull now (closes DSH) and Push now (closes DSH), sharing the main panel automation queue with backend-gated buttons and Chinese feedback.",
