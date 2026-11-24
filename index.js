@@ -1851,6 +1851,9 @@ function localPending(dshHome, lastSyncAt, profileName, ctx = {}) {
   let newest = 0
   const sample = []
   const groupCount = new Map()
+  // 每组保留具体明细名称（会话记录名 / 本机 profile 文件名 …），供面板展开查看
+  const groupItems = new Map()
+  const DETAIL_CAP = 50
   while (stack.length && scanned < 20000 && Date.now() < deadline) {
     const cur = stack.pop()
     let st
@@ -1881,12 +1884,25 @@ function localPending(dshHome, lastSyncAt, profileName, ctx = {}) {
         const sid = basename(dirname(cur)) // sessions/<workspace>/<sessionId>/session.v4.jsonl.zstd
         const title = sessionTitleOf(dshHome, sid)
         if (title) label = title
+        else label = `${sid}（会话）`
+      } else if (gid === 'profile') {
+        label = basename(cur) // 本机 profile 文件：package.json / cordis.patch.yml …
       }
       if (sample.length < 3) sample.push(label)
+      // 按组收集明细名（去重、限量）：面板展开可看具体会话记录名 / 本机 profile 文件
+      let items = groupItems.get(gid)
+      if (!items) { items = []; groupItems.set(gid, items) }
+      if (items.length < DETAIL_CAP && !items.includes(label)) items.push(label)
     }
   }
   const groups = [...groupCount.entries()]
-    .map(([id, count]) => ({ id, zh: PENDING_GROUP_LABEL[id]?.[0] || id, en: PENDING_GROUP_LABEL[id]?.[1] || id, count }))
+    .map(([id, count]) => ({
+      id,
+      zh: PENDING_GROUP_LABEL[id]?.[0] || id,
+      en: PENDING_GROUP_LABEL[id]?.[1] || id,
+      count,
+      items: groupItems.get(id) || [],
+    }))
     .sort((a, b) => b.count - a.count)
   return {
     known: true,
@@ -1894,6 +1910,7 @@ function localPending(dshHome, lastSyncAt, profileName, ctx = {}) {
     newestAt: newest ? new Date(newest).toISOString() : '',
     sample,
     groups,
+    profileName: profileName || 'desktop',
     truncated: scanned >= 20000 || Date.now() >= deadline,
   }
 }

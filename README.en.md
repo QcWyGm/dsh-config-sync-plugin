@@ -19,7 +19,7 @@ The package name is **`dsh-config-sync-plugin`** (the `dsh-config-sync` name on 
 
 | Way | Command / entry | Notes |
 |---|---|---|
-| npm | `npm i dsh-config-sync-plugin` | Use it as a dependency, or add `"dsh-config-sync-plugin": "^0.3.86"` to the profile's `package.json` and run `pnpm i`. The name matches the `cordis.patch.yml` insert name and the install folder `dsh-config-sync-plugin-<ver>` |
+| npm | `npm i dsh-config-sync-plugin` | Use it as a dependency, or add `"dsh-config-sync-plugin": "^0.3.89"` to the profile's `package.json` and run `pnpm i`. The name matches the `cordis.patch.yml` insert name and the install folder `dsh-config-sync-plugin-<ver>` |
 | Marketplace | client → Plugins → Discover → “Config Sync” | Installs from the git commit registered in `market-index.json` |
 | Offline tgz | `releases\dsh-config-sync-plugin-<ver>.tgz` | GitHub Release asset for air-gapped machines; the panel's Update button downloads the same file |
 
@@ -252,6 +252,19 @@ Two display fixes on top of 0.3.77:
 
 1. **Jump order matches section order**: the quick-jump tabs now follow the exact render order of the sections (Overview / Sync conflicts [when present] / Local paths [when expanded] / Targets / Automation & updates / Scripts / Restore / Content / Plugin data / Workspace visibility / Feedback). The two conditional sections (conflicts, local paths) appear in the tabs only when their cards are shown.
 2. **Scroll lands below the title**: the sticky title bar now uses an opaque background (same fill as panel cards), so content no longer shows through it; jumping to a tab sets the scroll offset from the title bar's actual height, so the target section lands fully below the title instead of being covered.
+
+### Plugin update falls back to two npm sources (0.3.89)
+
+The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
+
+### To-do and jump-tab display cleanup (0.3.90)
+
+Four display adjustments to the panel:
+
+1. **Jump tabs highlight the current position**: the quick-jump tabs now auto-highlight the topmost visible section in the scroll region (primary fill + primary text), so "where am I" is obvious at a glance; clicking a tab also lights it up immediately.
+2. **"Local data" label removed from To-do**: the old subheading-like "Local data / 本机数据" row is gone; the To-do card presents its stats and details directly without the redundant title.
+3. **To-do expands to concrete names**: each group (Conversations / Local profile / Skills …) is one row; click it to reveal the concrete names — sessions show the session title (or `<sessionId> (session)` when unavailable), and the local profile shows file names like `package.json`, `cordis.patch.yml`; each group is de-duplicated and capped at 50 items. The To-do card title row has an Expand / Collapse toggle, expanded by default so details are visible on entry.
+4. **Overview description synced**: changed to "Versions, dependencies, snapshots and to-do at a glance".
 
 ### Local data moved into To-do, grouped by sync content, sessions shown by name (0.3.86)
 
@@ -677,6 +690,8 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-24 | 0.3.90 | Jump tabs highlight the current section; "Local data" label removed from To-do; To-do expands to concrete session names and local profile files |
+| 2026-11-24 | 0.3.89 | Plugin update card shows an "npm download URL"; falls back to two npm sources (mirror + official) when GitHub release is unreachable, still verified against the authoritative sha256 |
 | 2026-11-23 | 0.3.86 | Moved "Local data" into Overview / To-do, grouped pending files by the twelve sync-content groups, and show session names instead of session ids in the sample |
 | 2026-11-23 | 0.3.85 | Removed the tinted banner above the workspace list in edit mode; edit state is read from the Edit/Done button in the header |
 | 2026-11-23 | 0.3.84 | Workspace visibility card uses one Edit button for the whole card; each session row carries its own toggle with a background and divider, hidden names struck through |

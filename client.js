@@ -2231,6 +2231,13 @@ window.__ModuleLoader__.load({
       // 「本机路径」平时不占版面：只在标题行按钮被点开时才渲染；按钮本身在
       // 「根外路径 / 被覆盖的配置」两类告警下变橙并带数字（待确认路径不算告警）。
       const [showRoots, setShowRoots] = react.useState(false)
+      // 待办明细展开态：按分组 id 记，点分组标题即展开/收起该组的具体名称（会话记录名 / 本机 profile 文件）
+      const [pendingOpen, setPendingOpen] = react.useState({})
+      // 待办卡总开关：默认展开，让具体会话记录名 / 本机 profile 一进来就可见
+      const [pendingDetailOpen, setPendingDetailOpen] = react.useState(true)
+      // 顶部跳转按钮的当前位置高亮：跟随滚动区里最靠上的可见分区
+      const [activeSection, setActiveSection] = react.useState('overview')
+      const bodyRef = react.useRef(null)
       // 定时器放 ref 里：数据每刷新一次 effect 就会重跑，若在 effect 里 return 清理函数，
       // 会把还没到点的"5 秒后消失"定时器一起清掉，提示就一直挂在屏幕上。
       const toastTimer = react.useRef(null)
@@ -2262,6 +2269,29 @@ window.__ModuleLoader__.load({
         const timer = setInterval(run, 30 * 60 * 1000)
         return () => { alive = false; clearInterval(timer) }
       }, [])
+
+      // 滚动时找出最靠近滚动区顶部的分区，作为顶部跳转按钮的高亮目标。
+      // 分区是动态的（冲突/本机路径卡可能不渲染），所以直接查 DOM 而不是维护一份 id 表。
+      react.useEffect(() => {
+        const body = bodyRef.current
+        if (!body) return
+        let raf = 0
+        const update = () => {
+          raf = 0
+          const top = body.getBoundingClientRect().top
+          const nodes = body.querySelectorAll('[id^="sync-section-"]')
+          let current = ''
+          for (const el of nodes) {
+            if (el.getBoundingClientRect().top - top <= 28) current = el.id.slice('sync-section-'.length)
+            else break
+          }
+          if (current) setActiveSection((prev) => (prev === current ? prev : current))
+        }
+        const onScroll = () => { if (!raf) raf = requestAnimationFrame(update) }
+        body.addEventListener('scroll', onScroll, { passive: true })
+        const t = setTimeout(update, 0) // 数据变化、DOM 重排后再算一次
+        return () => { body.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); clearTimeout(t) }
+      }, [data])
 
       const showToast = (text) => {
         setToast(text)
@@ -2626,38 +2656,67 @@ window.__ModuleLoader__.load({
           return local.pending > 0 ? M(`${base}（+${local.pending}）`, `${base} (+${local.pending})`) : base
         })(), data && data.local && data.local.pending > 0 ? 'warn' : 'ok'),
       )
-      // 本机数据（原「本机仓库」卡里的一行）挪进待办：按「同步内容」分组列出待推送项，会话显示会话名
+      // 待办：按「同步内容」分组列出待推送项，点分组展开看具体名称（会话记录名 / 本机 profile 文件）
       const localBlock = data && data.local && data.local.known ? (() => {
         const local = data.local
         const when = local.lastSyncAt ? new Date(local.lastSyncAt).toLocaleString(localeNow(), { hour12: false }) : '?'
         const groups = Array.isArray(local.groups) ? local.groups : []
-        const head = h('div', { style: { ...S.cardTitle, marginBottom: '4px' } }, M('本机数据', 'Local data'))
         const meta = h('div', { style: S.footnote }, M(
           `上次同步 ${when} · ${local.pending > 0 ? `有 ${local.pending} 个文件待推送` : '没有新写入'}${local.mode ? `（${local.mode}）` : ''}`,
           `Last sync ${when} · ${local.pending > 0 ? `${local.pending} file(s) to push` : 'nothing new'}${local.mode ? ` (${local.mode})` : ''}`,
         ))
+        // 每组一行：分组名 + 数量 + 展开箭头；展开后列出该组的具体名称
         const groupRows = groups.length
-          ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } }, groups.map((g, i) =>
-            h('div', {
-              key: i,
-              style: { ...S.chip, background: 'var(--dsw-alias-fill-l1, var(--dsw-alias-border-l1))' },
-            }, `${langIsZh() ? g.zh : g.en} · ${g.count}`)))
+          ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, groups.map((g, i) => {
+            const open = pendingOpen[g.id] === true
+            const items = Array.isArray(g.items) ? g.items : []
+            const canExpand = items.length > 0
+            return h('div', { key: g.id || i, style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
+              h('div', {
+                style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: canExpand ? 'pointer' : 'default', borderRadius: '6px', padding: '2px 4px' },
+                title: canExpand ? (open ? M('点击收起明细', 'Click to collapse') : M('点击展开明细', 'Click to expand')) : undefined,
+                onClick: canExpand ? () => setPendingOpen((prev) => ({ ...prev, [g.id]: !open })) : undefined,
+              },
+                h('span', { style: { flexShrink: 0, width: '10px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, canExpand ? (open ? '▾' : '▸') : ''),
+                h('span', { style: { ...S.chip, background: 'var(--dsw-alias-fill-l1, var(--dsw-alias-border-l1))' } }, langIsZh() ? g.zh : g.en),
+                h('span', { style: { ...S.footnote, color: 'var(--dsw-alias-label-tertiary)' } }, `×${g.count}`),
+              ),
+              open && canExpand
+                ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', padding: '2px 0 2px 20px' } },
+                  items.map((name, j) => h('div', {
+                    key: j,
+                    style: { ...S.footnote, fontFamily: 'Consolas, ui-monospace, monospace', wordBreak: 'break-all' },
+                  }, name)),
+                  g.count > items.length
+                    ? h('div', { style: { ...S.footnote, opacity: 0.7 } }, M(`还有 ${g.count - items.length} 项未列出`, `${g.count - items.length} more not listed`))
+                    : null,
+                )
+                : null,
+            )
+          }))
           : null
-        const sampleRow = Array.isArray(local.sample) && local.sample.length
-          ? h('div', { style: S.footnote }, M(
-            `最近写入：${local.sample.join('、')}`,
-            `Recently changed: ${local.sample.join(', ')}`,
-          ))
-          : null
-        return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, head, meta, groupRows, sampleRow)
+        return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, meta, groupRows)
       })() : null
 
       const overview = h('div', { style: { gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '8px' } },
         metrics,
         (localBlock || (data && Array.isArray(data.advice) && data.advice.length))
           ? h('div', { style: { ...S.card, gap: '6px', padding: '10px 13px' } },
-            h('div', { style: S.cardTitle }, M('待办', 'To-do')),
-            localBlock,
+            h('div', { style: S.cardHead },
+              h('div', { style: S.cardTitle }, M('待办', 'To-do')),
+              localBlock
+                ? h('button', {
+                  type: 'button',
+                  style: { marginLeft: 'auto', fontSize: '11px', lineHeight: '16px', padding: '1px 8px', borderRadius: '6px', cursor: 'pointer', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-secondary)' },
+                  title: pendingDetailOpen ? M('收起待办明细', 'Collapse details') : M('展开待办明细', 'Expand details'),
+                  onClick: () => setPendingDetailOpen((v) => !v),
+                }, pendingDetailOpen ? M('收起', 'Collapse') : M('展开', 'Expand'))
+                : null,
+            ),
+            pendingDetailOpen ? localBlock : (localBlock ? h('div', { style: S.footnote }, M(
+              `${data.local.pending > 0 ? `有 ${data.local.pending} 个文件待推送` : '没有新写入'} · 点「展开」看具体会话记录与本机 profile`,
+              `${data.local.pending > 0 ? `${data.local.pending} file(s) to push` : 'nothing new'} · click Expand for session names and local profile`,
+            )) : null),
             data && Array.isArray(data.advice) && data.advice.length ? h(Advice, { items: data.advice }) : null)
           : null,
       )
@@ -2815,18 +2874,31 @@ window.__ModuleLoader__.load({
                 ['feedback', M('问题反馈', 'Feedback')],
               ].map((pair) => {
                 const sid = pair[0], label = pair[1]
+                // 当前所处的分区：主色底 + 主色字，和概览区标题竖条同一套视觉锚点
+                const active = activeSection === sid
                 return h('button', {
                   key: sid, type: 'button',
-                  style: { fontSize: '12px', lineHeight: '18px', padding: '3px 10px', borderRadius: '6px', border: '1px solid transparent', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' },
-                  title: M('跳转到此区', 'Jump to section'),
-                  onClick: () => { const el = document.getElementById('sync-section-' + sid); if (!el || !el.scrollIntoView) return; el.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+                  style: {
+                    fontSize: '12px', lineHeight: '18px', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer',
+                    border: '1px solid ' + (active ? 'var(--dsw-alias-toast-action)' : 'transparent'),
+                    background: active ? 'var(--dsw-alias-toast-action)' : 'transparent',
+                    color: active ? 'var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary))' : 'var(--dsw-alias-label-secondary)',
+                    fontWeight: active ? 600 : 400,
+                  },
+                  title: active ? M('当前所在区', 'Current section') : M('跳转到此区', 'Jump to section'),
+                  onClick: () => {
+                    setActiveSection(sid)
+                    const el = document.getElementById('sync-section-' + sid)
+                    if (!el || !el.scrollIntoView) return
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  },
                 }, label)
               }),
             ),
           ),
         ),
         ),
-        h('div', { style: S.pageBody },
+        h('div', { ref: bodyRef, style: S.pageBody },
           h('div', { style: S.pageInner },
           toast
             ? h('div', {
@@ -2843,7 +2915,7 @@ window.__ModuleLoader__.load({
             : null,
           err ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-error-primary)' } }, M(`读取失败：${err}`, `Read failed: ${err}`)) : null,
           // 按内容分区：状态在上、配置居中、动作在下；每区内部网格并排（宽屏两列）
-          Section(M('概览', 'Overview'), M('版本、依赖、快照一眼看完', 'Versions, dependencies and snapshots at a glance'), [overview], 'overview'),
+          Section(M('概览', 'Overview'), M('版本、依赖、快照与待办一眼看完', 'Versions, dependencies, snapshots and to-do at a glance'), [overview], 'overview'),
           conflictCard
             ? Section(M('同步冲突', 'Sync conflicts'), M('这些文件挡住了拉取：逐项选完保存，再点「立即拉取」', 'These files block the pull: pick per file, save, then pull'), [conflictCard], 'conflict')
             : null,
