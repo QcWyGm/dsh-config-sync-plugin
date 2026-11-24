@@ -696,8 +696,8 @@ window.__ModuleLoader__.load({
           k: M('远端', 'Remote'),
           v: repo.exists
             ? M(
-              `落后 ${repo.behind ?? '?'} · 领先 ${repo.ahead ?? '?'} · 未提交 ${repo.dirty ?? '?'}`,
-              `behind ${repo.behind ?? '?'} · ahead ${repo.ahead ?? '?'} · dirty ${repo.dirty ?? '?'}`,
+              `落后 ${repo.behind ?? '?'} · 领先 ${repo.ahead ?? '?'} · 未提交 ${repo.uncommitted ?? repo.dirty ?? '?'}` + (repo.pending ? `（本机待同步 ${repo.pending}）` : ''),
+              `behind ${repo.behind ?? '?'} · ahead ${repo.ahead ?? '?'} · uncommitted ${repo.uncommitted ?? repo.dirty ?? '?'}` + (repo.pending ? ` (${repo.pending} pending on this machine)` : ''),
             )
             : (repo.empty ? M('（拉取之后才有得比）', '(available after the first pull)') : M('（不可用）', '(unavailable)')),
         }),
@@ -3466,21 +3466,20 @@ window.__ModuleLoader__.load({
       const canPull = repo.pullAllowed === true
       const canPush = repo.pushAllowed === true
 
-      // 远端信息不更新的根因：inspect() 的落后/领先数来自 git rev-list HEAD...@{upstream}，
-      // 而 @{upstream} 只有 git fetch 之后才反映云端最新，光 refresh() 拿到的还是旧引用。
-      // 所以展开这里先打一次 /config-sync/auto {action:'check'}（它会 fetch 云端更新远端引用），
-      // 再 refresh() 拉新快照；展开期间每 30 秒重复一次。
+      // 远端数字不刷新的根因有两层：
+      // 1) 落后/领先来自 git tracking ref，必须 fetch 才更新 —— check 动作会 fetch；
+      // 2) 用户说的「没更新」还包括本机还没 capture 进仓库的待同步数据 —— 后端已并进 repo.uncommitted/pending。
+      // 「刷新」按钮与展开时的自动刷新都走这条链：先 check（fetch），再 refresh 拉新快照。
+      const refreshRemoteNow = react.useCallback(async () => {
+        try { await callAuto({ action: 'check' }) } catch { /* 离线就按本机缓存显示，不打扰 */ }
+        refresh()
+      }, [refresh])
       react.useEffect(() => {
         if (!open) return
-        let alive = true
-        const refreshRemoteNow = async () => {
-          try { await callAuto({ action: 'check' }) } catch { /* 离线就按本机缓存显示，不打扰 */ }
-          if (alive) refresh()
-        }
         refreshRemoteNow()
         const timer = setInterval(refreshRemoteNow, 30000)
-        return () => { alive = false; clearInterval(timer) }
-      }, [open, refresh])
+        return () => { clearInterval(timer) }
+      }, [open, refreshRemoteNow])
 
       // 立即拉取 / 立即推送：和大面板「自动同步」卡同一条 /config-sync/auto 队列，
       // 点完排队、关掉 DSH 后由 post-exit.ps1 真正执行（本进程不自己动手）。
@@ -3504,7 +3503,7 @@ window.__ModuleLoader__.load({
         h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 } },
           h('span', { style: chipStyle(summary.kind) }, chipLabel(summary.kind)),
           h('button', { type: 'button', style: S.btn, onClick: () => setOpen((v) => !v) }, open ? M('收起', 'Collapse') : M('查看', 'View')),
-          h('button', { type: 'button', style: S.btn, disabled: busy, onClick: refresh }, busy ? M('刷新中…', 'Refreshing…') : M('刷新', 'Refresh')),
+          h('button', { type: 'button', style: S.btn, disabled: busy, onClick: refreshRemoteNow }, busy ? M('刷新中…', 'Refreshing…') : M('刷新', 'Refresh')),
         ),
       )
 
@@ -3528,8 +3527,8 @@ window.__ModuleLoader__.load({
             v: data.repo.behind === null
               ? M('读不到', 'Unavailable')
               : M(
-                `落后 ${data.repo.behind} · 领先 ${data.repo.ahead} · 未提交 ${data.repo.dirty}`,
-                `behind ${data.repo.behind} · ahead ${data.repo.ahead} · dirty ${data.repo.dirty}`,
+                `落后 ${data.repo.behind} · 领先 ${data.repo.ahead} · 未提交 ${data.repo.uncommitted ?? data.repo.dirty}` + (data.repo.pending ? `（本机待同步 ${data.repo.pending}）` : ''),
+                `behind ${data.repo.behind} · ahead ${data.repo.ahead} · uncommitted ${data.repo.uncommitted ?? data.repo.dirty}` + (data.repo.pending ? ` (${data.repo.pending} pending on this machine)` : ''),
               ),
           }) : null,
           data ? h(Kv, {

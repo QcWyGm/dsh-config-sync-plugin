@@ -257,6 +257,13 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Remote "uncommitted" now includes local pending changes + Refresh really fetches (0.3.92)
+
+Root cause found by measurement for "remote info still not updating": the git-level behind/ahead really is 0 (local HEAD matches the gitee cloud), while what the user means by "not updated" is the runtime-generated changes on this machine not yet captured into the repo. Two substantive fixes:
+
+1. **"Uncommitted" = git work-tree changes + local pending**: the status `repo` object gains `pending` (local session/config changes not yet synced) and `uncommitted` (`dirty + pending`). Both "Remote" Kv rows in the panel use `uncommitted` for the uncommitted figure and append "(N pending on this machine)" when there are pending items. New local sessions/config changes show up immediately without waiting for DSH exit + capture.
+2. **"Refresh" button actually fetches**: the summary-row "Refresh" button previously only re-read status (no git fetch, so behind/ahead stayed the same). It now runs `refreshRemoteNow`: first `/config-sync/auto {action:'check'}` to trigger `git fetch` and refresh remote refs, then refresh the snapshot. The 30-second auto-refresh while expanded shares the same chain.
+
 ### Settings → General → Config Sync: live remote info + Pull/Push now buttons (0.3.91)
 
 Two adjustments to the "Settings → General → Config Sync" summary row:
@@ -697,6 +704,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-24 | 0.3.92 | Remote "uncommitted" now includes local pending data (pending); Refresh button really triggers git fetch; fixes "remote figures always 0" |
 | 2026-11-24 | 0.3.91 | Settings summary row fetches before refreshing remote info (no longer stale, auto-refresh every 30s); four generate-script buttons replaced with Pull/Push now (closes DSH) sharing the automation queue |
 | 2026-11-24 | 0.3.90 | Jump tabs highlight the current section; "Local data" label removed from To-do; To-do expands to concrete session names and local profile files |
 | 2026-11-24 | 0.3.89 | Plugin update card shows an "npm download URL"; falls back to two npm sources (mirror + official) when GitHub release is unreachable, still verified against the authoritative sha256 |

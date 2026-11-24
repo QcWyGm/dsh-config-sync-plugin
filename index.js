@@ -1119,6 +1119,10 @@ async function inspect(config) {
       dirty,
       ahead,
       behind,
+      // 本机待同步（还没 capture 进仓库的会话/配置改动），与 git 工作树 dirty 是两件事。
+      pending: (local && local.pending) || 0,
+      // 面板上用户理解的「未提交」= git 工作树改动 + 本机还没同步的改动，反映「还没进云端的本机改动总数」。
+      uncommitted: (dirty || 0) + ((local && local.pending) || 0),
     },
     version: { local: localVersion, contract: contractVersion, electron: electronVersion, match: versionMatch },
     // 本机数据侧：上次同步时间 + 「之后又写过多少文件」，与 repo.dirty 是两件事
