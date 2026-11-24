@@ -2151,13 +2151,24 @@ function compareVersion(a, b) {
 }
 
 /**
- * 0.3.88：npm registry 的 tarball 地址。npm 包与 GitHub release 的 tgz 是同一份发布产物
- * （实测两者 sha256 完全一致），所以 GitHub release 下载不通时能自动从 npm 镜像取，
- * 清单里的权威 sha256 照常校验，不会因换源而放松校验。
+ * 0.3.89：npm registry 的 tarball 地址（双源）。npm 包与 GitHub release 的 tgz 是同一份
+ * 发布产物（实测 sha256 完全一致），GitHub release 不通时自动从 npm 取。两个源都列：
+ * npmmirror 国内快、但发版后有同步窗口期会短暂 404；官方 registry 更权威、不受镜像延迟影响。
+ * 清单里的权威 sha256 照常校验，换源不放宽校验。
  */
-function npmTgzUrl(version) {
+function npmTgzUrls(version) {
   const v = String(version || '').replace(/[^0-9A-Za-z.+\-]/g, '')
-  return v ? `https://registry.npmmirror.com/dsh-config-sync-plugin/-/dsh-config-sync-plugin-${v}.tgz` : ''
+  if (!v) return []
+  const f = `dsh-config-sync-plugin-${v}.tgz`
+  return [
+    `https://registry.npmmirror.com/dsh-config-sync-plugin/-/${f}`,
+    `https://registry.npmjs.org/dsh-config-sync-plugin/-/${f}`,
+  ]
+}
+// 兼容旧调用：返回首选 npm 兜底地址
+function npmTgzUrl(version) {
+  const list = npmTgzUrls(version)
+  return list.length ? list[0] : ''
 }
 
 /**
@@ -2167,11 +2178,15 @@ function npmTgzUrl(version) {
  */
 function resolveTgzCandidates(manifest, manifestUrl = '') {
   const tgz = String((manifest && manifest.tgz) || '')
-  const npmTgz = npmTgzUrl(manifest && manifest.version)
-  const withNpm = (list) => (npmTgz && !list.includes(npmTgz) ? [...list, npmTgz] : list)
-  // 清单没给 tgz 时，也留 npm 这一条路（有版本就能拼出 tarball）
-  if (!tgz) return npmTgz ? [npmTgz] : []
-  // 清单里写了绝对地址：先照它来，末尾追加 npm 兜底（0.3.88 起不再直接 return）
+  const npmList = npmTgzUrls(manifest && manifest.version)
+  const withNpm = (list) => {
+    const out = list.slice()
+    for (const u of npmList) if (u && !out.includes(u)) out.push(u)
+    return out
+  }
+  // 清单没给 tgz 时，也留 npm 这两条路（有版本就能拼出 tarball）
+  if (!tgz) return npmList.slice()
+  // 清单里写了绝对地址：先照它来，末尾追加 npm 双源兜底（0.3.89 起不再直接 return）
   if (/^https?:\/\//i.test(tgz)) return withNpm([tgz])
   const rel = tgz.replace(/^\.?\//, '')
   const bases = []
@@ -2308,8 +2323,9 @@ function updatePayload(state, settings = {}) {
       notesEn: String(remote.notesEn || ''),
       releasedAt: String(remote.releasedAt || ''),
       tgz: resolveTgzUrl(remote, state.url),
-      // 0.3.88：GitHub release 不通时的 npm 兜底下载地址，面板上单独显示一行
+      // 0.3.89：GitHub release 不通时的 npm 兜底下载地址（双源，面板显示首选），面板上单独显示一行
       npmTgz: npmTgzUrl(remote.version),
+      npmTgzUrls: npmTgzUrls(remote.version),
       sha256: String(remote.sha256 || ''),
     } : null,
     hasUpdate: remote ? compareVersion(remote.version, PLUGIN_VERSION) > 0 : false,

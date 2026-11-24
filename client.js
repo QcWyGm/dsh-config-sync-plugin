@@ -2560,12 +2560,21 @@ window.__ModuleLoader__.load({
                   ? M('已配置（只存本机）', 'Set (stored on this machine only)')
                   : M('未配置（私有库会读不到清单）', 'Not set (private repos cannot be read)'),
               }),
-              u.remote && u.remote.npmTgz
+              u.remote && u.remote.npmTgzUrls && u.remote.npmTgzUrls.length
                 ? h(Kv, {
                     k: M('npm 下载路径', 'npm download URL'),
-                    v: u.remote.npmTgz,
+                    v: h('span', { style: { display: 'inline-flex', flexDirection: 'column', gap: '2px' } },
+                      u.remote.npmTgzUrls.map((url, i) =>
+                        h('span', { key: i, title: url }, url)
+                      )
+                    ),
                   })
-                : null,
+                : u.remote && u.remote.npmTgz
+                  ? h(Kv, {
+                      k: M('npm 下载路径', 'npm download URL'),
+                      v: u.remote.npmTgz,
+                    })
+                  : null,
             ),
           h('div', { style: S.footnote },
             M(
