@@ -1830,5 +1830,29 @@ console.log('== 0.3.94：清理跨重启僵死 watcher，锁不再被旧实例�
   check('post-exit wait：过期 watcher 清自己的锁并 exit 3 让位',
     /\$lock\.pid -eq \$PID/.test(postSrc) && /\bexit 3\b/.test(postSrc), 'post-exit.ps1 让位')
 }
+console.log('')
+console.log('== 0.3.95：所有 runtime/*.ps1 必须带 UTF-8 BOM（PS5.1 中文脚本防乱码崩溃）==')
+{
+  // 决定性教训：0.3.94 编辑 post-exit.ps1 时写入工具丢了 BOM，PS5.1 按 GBK 解码，
+  // 中文全角括号被解成引号 → 55 处语法错 → 脚本启动即崩 → 所有排队同步（含点 ×）全部失效。
+  // 所有含中文的 .ps1 必须带 UTF-8 BOM，否则在 Windows PowerShell 5.1 下必崩。
+  const ps1Names = ['apply.ps1', 'capture.ps1', 'dsh-sync-common.ps1', 'install-plugin.ps1',
+    'post-exit.ps1', 'restore.ps1', 'sync.ps1']
+  for (const name of ps1Names) {
+    const p = join(pluginRuntime, name)
+    if (!existsSync(p)) continue
+    const bytes = readFileSync(p)
+    const hasBom = bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF
+    const hex = [...bytes.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' ')
+    check(`${name} 带 UTF-8 BOM（PS5.1 不会按 GBK 解成乱码）`, hasBom, `前3字节 ${hex}`)
+  }
+  // post-exit.ps1 是排队同步（含点 × 触发）的唯一执行体，崩了就全盘不动，单独强调
+  const postPath = join(pluginRuntime, 'post-exit.ps1')
+  if (existsSync(postPath)) {
+    const b = readFileSync(postPath)
+    check('post-exit.ps1 执行体非零字节且带 BOM',
+      b.length > 1000 && b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF, `bytes=${b.length}`)
+  }
+}
 process.exit(failures === 0 ? 0 : 1)
 

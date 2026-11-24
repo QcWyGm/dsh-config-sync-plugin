@@ -277,6 +277,14 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 修复 post-exit.ps1 丢 UTF-8 BOM 致排队同步全崩（0.3.95）
+
+前面几版「勾了自动拉取/推送、点 × 还是不触发」的最终根因，既不在排队逻辑也不在关闭钩子，而在**执行体脚本的编码**：0.3.94 编辑 `post-exit.ps1` 时，写入工具把文件开头的 **UTF-8 BOM（`EF BB BF`）弄丢了**。Windows PowerShell 5.1 遇到无 BOM 的中文 UTF-8 脚本会按 GBK 解码，中文全角括号被解成引号，脚本一启动就报 55 处语法错直接退出。结果：watcher 明明排上了（`auto-sync-launch.log` 有「已启动」），但 `auto-sync-wait.log` 没有新的「等待开始」——所有排队的同步（启动首检、2 分钟复查、点 × 触发）全部启动即崩，表现成「完全没触发」。
+
+1. **执行体补回 BOM**：`post-exit.ps1`（插件 runtime、配置仓库镜像、实际部署目录三处）用 `UTF8Encoding($true)` 重写补回 BOM，`ParseFile` 语法错误从 55 降到 0，隔离探针实测 wait 段能正常启动、写日志、持续存活。
+2. **防回归断言**：`selftest.mjs` 新增检查——所有 `runtime/*.ps1` 必须带 UTF-8 BOM（前 3 字节 `EF BB BF`），`post-exit.ps1` 执行体单独再验一次。以后再有人编辑脚本丢了 BOM，自测直接红。
+3. **打包保持 BOM**：`fs.copyFileSync` 原样复制不会丢 BOM；本次是源文件被编辑工具写坏的，打包产物核验包内 `post-exit.ps1` 带 BOM。
+
 ### 清理跨重启僵死 watcher，锁不再被旧实例占死（0.3.94）
 
 实测「勾了开关、点 × 关闭还是不触发」还有一个更深的原因：插件更新流程重启 DSH 后，更新前排的那个 watcher 还在等**已经退出的旧 DSH 进程**（WatchPid 已死），却被 post-exit 的「进程名还有新实例」判断挡着不敢开工，于是僵死在 wait 段、一直占着 `~/.dsh/auto-sync.lock`。此时点 × 新排的 watcher 看到锁里 pid 存活且同为 push，就误判「同一个同步正在等」直接复用——复用的是一个永远不会执行的僵死 watcher，所以看着像彻底没触发。这次两处修复：
@@ -703,6 +711,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 | 日期 | 版本 | 要点 |
 |---|---|---|
+| 2026-11-24 | 0.3.95 | 修复 post-exit.ps1 丢 UTF-8 BOM 致 PS5.1 按 GBK 解码、55 处语法错启动即崩：三处执行体补回 BOM，selftest 加全量 ps1 BOM 断言防回归 |
 | 2026-11-24 | 0.3.94 | 修复跨重启僵死 watcher 占锁：锁记 watchPid、复用前查僵死、旧锁杀掉重排；post-exit wait 段过期 watcher 自清让位；解决「勾了开关点 × 仍不触发」 |
 | 2026-11-24 | 0.3.93 | 点 × 关闭 DSH 时立即判一次自动拉取/推送并排队 watcher，不再等 2 分钟复查窗口；autoRestart 语义统一为 !== false |
 | 2026-11-24 | 0.3.92 | 远端「未提交」纳入本机待同步数据（pending），刷新按钮真正触发 git fetch；解决「远端数字一直是 0」 |

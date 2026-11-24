@@ -1,10 +1,10 @@
 {
-  "version": "0.3.94",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.94/dsh-config-sync-plugin-0.3.94.tgz",
-  "tgzBytes":425911,
-  "sha256":"2723f4c686229963e68c3a38aef8cb136efdf05bbd6b0c54a3744e153ca2a388",
+  "version": "0.3.95",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.95/dsh-config-sync-plugin-0.3.95.tgz",
+  "tgzBytes":427958,
+  "sha256":"2c31be44ca4926c0908f04842625a3d37da1ce4ada4f4987446b5433a1efdc33",
   "releasedAt": "2026-11-24",
-  "notes": "修复跨重启僵死 watcher 占锁导致「勾了自动拉取/推送、点 × 关闭仍不触发」：auto-sync.lock 写入 watchPid=当前 DSH pid；spawnWatcher 复用锁前先判僵死（watchPid 缺失或进程已退出→杀旧 watcher、清锁、重排），只在 DSH+watcher 都活着且 mode 相同时才复用；post-exit wait 段发现 WatchPid 已死但进程名有新实例且全部晚于本等待进程时，判定过期 watcher，写日志、清自己的锁并 exit 3 让位。post-exit.ps1 同步进配置仓库执行体镜像。保留 0.3.93 的点 × 判一次并排队行为。",
-  "notesEn": "Fix cross-restart stale watchers holding the lock, which made 'auto pull/push enabled but clicking × still triggered nothing': auto-sync.lock now records watchPid=current DSH pid; spawnWatcher checks for staleness before reuse (missing watchPid or dead DSH pid → kill old watcher, clear lock, re-queue), and only reuses when both DSH and watcher are alive with the same mode. The post-exit wait phase, on seeing WatchPid gone but same-named processes that all started after this waiter, treats itself as a stale watcher: logs, removes its own lock, and exits 3 to yield. post-exit.ps1 is mirrored into the config repo runtime. Keeps the 0.3.93 close-click check-and-queue behavior.",
+  "notes": "修复 post-exit.ps1 丢 UTF-8 BOM 致排队同步全崩：0.3.94 编辑脚本时丢了 UTF-8 BOM，Windows PowerShell 5.1 按 GBK 解码→中文全角括号被解成引号→55 处语法错→脚本启动即崩，导致所有排队同步（启动首检/2分钟复查/点×触发）全部失效。这次把三处 post-exit.ps1 执行体（插件 runtime、配置仓库镜像、部署目录）用 UTF8Encoding($true) 补回 BOM，ParseFile 语法错从 55 降到 0；selftest 新增全量 runtime/*.ps1 必须带 BOM 的断言防回归；打包核验包内 post-exit.ps1 带 BOM。0.3.93 点×判一次 + 0.3.94 清僵死锁的修复都保留。",
+  "notesEn": "Fix post-exit.ps1 losing UTF-8 BOM, which crashed every queued sync: 0.3.94 stripped the BOM while editing the script; Windows PowerShell 5.1 decoded it as GBK → full-width Chinese parentheses became quotes → 55 syntax errors → the script crashed on launch, so every queued sync (startup check, 2-minute recheck, ×-close trigger) failed. This restores the BOM on all three post-exit.ps1 executors (plugin runtime, config-repo mirror, deployed dir) with UTF8Encoding($true); ParseFile syntax errors drop from 55 to 0; selftest adds a full runtime/*.ps1 BOM assertion to prevent regression; the packed tarball is verified to contain a post-exit.ps1 with BOM. Keeps the 0.3.93 close-click check and 0.3.94 stale-watcher lock fix.",
   "minClient": "0.2.2-rc.2"
 }

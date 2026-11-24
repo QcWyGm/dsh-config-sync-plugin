@@ -257,6 +257,14 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Fix post-exit.ps1 missing UTF-8 BOM, which crashed every queued sync (0.3.95)
+
+The final root cause behind "auto pull/push enabled, clicking × still triggers nothing" was neither the queue logic nor the close hook — it was the **encoding of the executor script**. When 0.3.94 edited `post-exit.ps1`, the write tool stripped the leading **UTF-8 BOM (`EF BB BF`)**. Windows PowerShell 5.1 decodes a BOM-less Chinese UTF-8 script as GBK, turns full-width Chinese parentheses into quote characters, and fails with 55 syntax errors the moment the script starts. Result: the watcher was queued (`auto-sync-launch.log` logged "started"), but `auto-sync-wait.log` never got a new "waiting started" line — every queued sync (startup check, 2-minute recheck, ×-close trigger) crashed on launch, appearing as "nothing ever triggers".
+
+1. **Restore the BOM on the executor**: `post-exit.ps1` (plugin runtime, config-repo mirror, deployed directory) was rewritten with `UTF8Encoding($true)` to restore the BOM; `ParseFile` syntax errors dropped from 55 to 0, and an isolated probe confirmed the wait phase starts, writes its log, and stays alive.
+2. **Regression assertion**: `selftest.mjs` now checks that every `runtime/*.ps1` carries a UTF-8 BOM (first 3 bytes `EF BB BF`), with an extra check on `post-exit.ps1`. Editing a script and losing its BOM now turns the self-test red.
+3. **Packaging preserves BOM**: `fs.copyFileSync` copies bytes verbatim and never strips a BOM; this incident was the source file being edited incorrectly. The packed tarball is verified to contain a `post-exit.ps1` with BOM.
+
 ### Clean up cross-restart stale watchers — the lock can no longer be held by an old instance (0.3.94)
 
 A deeper cause was measured behind "switches enabled, clicking × still triggers nothing": after a plugin update restarts DSH, the watcher queued before the update is still waiting on the **old, already-dead DSH process** (WatchPid is gone), but the post-exit "a process with this name still exists" guard keeps it from starting. It hangs in the wait phase and holds `~/.dsh/auto-sync.lock` forever. When × queues a new watcher, it sees a live pid with the same mode in the lock, assumes "the same sync is already waiting" and reuses it — reusing a watcher that will never run, so nothing appears to happen. Two fixes:
@@ -721,6 +729,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-24 | 0.3.95 | Fix post-exit.ps1 losing UTF-8 BOM (PS5.1 decoded as GBK, 55 syntax errors, crashed on launch): restored BOM on all three executors, selftest adds full ps1 BOM assertion to prevent regression |
 | 2026-11-24 | 0.3.94 | Fix cross-restart stale watchers holding the lock: lock records watchPid, reuse checks staleness, stale locks are killed and re-queued; post-exit wait self-clears stale watchers; fixes "switches on, clicking × still triggers nothing" |
 | 2026-11-24 | 0.3.93 | Clicking × to close DSH now checks once for auto pull/push and queues the watcher immediately (no more waiting for the 2-minute window); autoRestart semantics unified to !== false |
 | 2026-11-24 | 0.3.92 | Remote "uncommitted" now includes local pending data (pending); Refresh button really triggers git fetch; fixes "remote figures always 0" |
