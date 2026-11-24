@@ -94,7 +94,7 @@ function check(label, cond, detail = '') {
 }
 
 console.log('== dsh-config-sync-plugin 宿主半身自检 ==')
-check('apply() 注册了路由', routes.size === 12 && routes.has('/config-sync/update') && routes.has('/config-sync/scope') && routes.has('/config-sync/extra-config') && routes.has('/config-sync/conflict') && routes.has('/config-sync/roots') && routes.has('/config-sync/feedback') && routes.has('/config-sync/cache-guard') && routes.has('/config-sync/workspace-view'), `实际 ${routes.size} 条：${[...routes.keys()].join(', ')}`)
+check('apply() 注册了路由', routes.size === 13 && routes.has('/config-sync/auto-exit') && routes.has('/config-sync/update') && routes.has('/config-sync/scope') && routes.has('/config-sync/extra-config') && routes.has('/config-sync/conflict') && routes.has('/config-sync/roots') && routes.has('/config-sync/feedback') && routes.has('/config-sync/cache-guard') && routes.has('/config-sync/workspace-view'), `实际 ${routes.size} 条：${[...routes.keys()].join(', ')}`)
 
 const status = await call('/config-sync/status', { headers: { host: 'localhost:3080' } })
 const body = JSON.parse(status.body || '{}')
@@ -1782,7 +1782,7 @@ console.log('== 0.3.93：点 × 关闭时判一次并排队自动拉取/推送 =
   const idxSrc = existsSync(join(pluginRootSelf, 'index.js')) ? readFileSync(join(pluginRootSelf, 'index.js'), 'utf8') : ''
   // 1) 新增退出前排队函数：读开关 / 复用在途 watcher / 空仓只拉 / 拉取优先 / 判据同 scheduleAutoStart
   check('退出前排队函数存在且读 autoPull/autoPush 开关',
-    /async function triggerAutoSyncOnClose\(config\)/.test(idxSrc)
+    /async function triggerAutoSyncOnClose\(config, options = \{\}\)/.test(idxSrc)
     && /if \(!settings\.autoPull && !settings\.autoPush\) return/.test(idxSrc), 'index.js triggerAutoSyncOnClose')
   check('已有在途 watcher 时复用、不重复拉起',
     /autoState\.pending[\s\S]{0,200}isProcessAlive\(autoState\.pending\.watcherPid\)[\s\S]{0,120}reused: true/.test(idxSrc), 'index.js 复用守卫')
@@ -1853,6 +1853,39 @@ console.log('== 0.3.95：所有 runtime/*.ps1 必须带 UTF-8 BOM（PS5.1 中文
     check('post-exit.ps1 执行体非零字节且带 BOM',
       b.length > 1000 && b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF, `bytes=${b.length}`)
   }
+}
+console.log('')
+console.log('== 0.3.96：页面卸载信标（sendBeacon）绕开 Electron 关窗钩子死结 ==')
+{
+  const idxSrc = existsSync(join(pluginRootSelf, 'index.js')) ? readFileSync(join(pluginRootSelf, 'index.js'), 'utf8') : ''
+  const cliSrc = existsSync(join(pluginRootSelf, 'client.js')) ? readFileSync(join(pluginRootSelf, 'client.js'), 'utf8') : ''
+  // 后端：新路由 + handler + fast 判据
+  check('新增 auto-exit 路由常量',
+    /const ROUTE_AUTO_EXIT = '\/config-sync\/auto-exit'/.test(idxSrc), 'index.js ROUTE_AUTO_EXIT')
+  check('auto-exit 路由已注册（withLang(handleAutoExit)）',
+    /path: ROUTE_AUTO_EXIT[\s\S]{0,80}handler: withLang\(handleAutoExit\)/.test(idxSrc), 'index.js 路由注册')
+  check('handleAutoExit 存在且走 triggerAutoSyncOnClose fast 模式',
+    /async function handleAutoExit\(req, res, config\)/.test(idxSrc)
+    && /triggerAutoSyncOnClose\(config, \{ fast: true \}\)/.test(idxSrc), 'index.js handleAutoExit')
+  check('triggerAutoSyncOnClose 接 options 并在 fast 时用 checkDriftFast',
+    /async function triggerAutoSyncOnClose\(config, options = \{\}\)/.test(idxSrc)
+    && /options\.fast \? await checkDriftFast\(repo\) : await checkDrift\(repo\)/.test(idxSrc), 'index.js fast 分支')
+  check('checkDriftFast 只读本地 tracking ref，绝不 git fetch',
+    /async function checkDriftFast\(repo\)/.test(idxSrc)
+    && /rev-list', '--left-right', '--count'/.test(idxSrc)
+    && !/async function checkDriftFast[\s\S]{0,700}?git\(repo, \['fetch'/.test(idxSrc), 'index.js checkDriftFast')
+  // 前端：pagehide/beforeunload → sendBeacon，且全程 typeof 守卫（clientcheck 无 document/navigator）
+  check('client.js 安装 pagehide + beforeunload 卸载监听',
+    /window\.addEventListener\('pagehide', fire\)/.test(cliSrc)
+    && /window\.addEventListener\('beforeunload', fire\)/.test(cliSrc), 'client.js 卸载监听')
+  check('卸载时向 /config-sync/auto-exit 发 navigator.sendBeacon',
+    /navigator\.sendBeacon\('\/config-sync\/auto-exit'/.test(cliSrc), 'client.js sendBeacon')
+  check('pagehide 信标全程 typeof 守卫（无 document/navigator 环境不崩）',
+    /if \(typeof navigator === 'undefined' \|\| typeof navigator\.sendBeacon !== 'function'\) return noop/.test(cliSrc)
+    && /if \(typeof window === 'undefined' \|\| typeof window\.addEventListener !== 'function'\) return noop/.test(cliSrc), 'client.js 守卫')
+  check('apply() 内安装信标并用 ctx.effect 回收',
+    /var offBeacon = installExitBeacon\(\)/.test(cliSrc)
+    && /ctx\.effect\(function \(\) \{ return function \(\) \{ try \{ offBeacon\(\) \}/.test(cliSrc), 'client.js apply 安装')
 }
 process.exit(failures === 0 ? 0 : 1)
 

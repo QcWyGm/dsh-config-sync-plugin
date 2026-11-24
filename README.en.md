@@ -257,6 +257,14 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Page-unload beacon replaces the Electron close hook, finally fixing "× does not trigger" (0.3.96)
+
+After 0.3.95 fixed the BOM (watcher no longer crashes on launch), the real culprit behind "closing × still does not trigger" surfaced: **the Electron close hook never got installed**. Two ironclad facts — the plugin actually runs in the host child process (`dsh-desktop-host`, a `--expose-internals` node process), so `require('electron')` has no `app`, `electronApp()` returns null and `installQuitWhenAllWindowsClosed` bails at `if (!el) return`; and even if it had `el`, `browser-window-created` fired long before plugin `apply`, so that event never fires again and the `closed` callback never runs. So the "check once on ×" chain added in 0.3.93 **never actually ran** (no new watcher in launch.log, zero hook logs). This version changes tack completely:
+
+1. **Front-end unload beacon**: `client.js` installs `pagehide` + `beforeunload` listeners in `apply()`; on page unload (× / tab close / process exit) it fires `navigator.sendBeacon('/config-sync/auto-exit')`, a fire-and-forget request — no Electron events involved. Fully `typeof`-guarded; environments without `navigator.sendBeacon` silently skip.
+2. **Backend fast check**: new `/config-sync/auto-exit` route; `handleAutoExit` calls `triggerAutoSyncOnClose(config, { fast: true })`. Fast mode reads only the local tracking ref (`rev-list HEAD...origin/branch`, milliseconds) for ahead/behind, **never `git fetch`** — once the beacon arrives the plugin process can be killed at any moment by DSH exiting, so there is no time for a seconds-long network fetch; pull/push criteria match the startup recheck, pull takes priority. It returns right after queuing the watcher; the real pull/push runs from the independently surviving `post-exit.ps1` after all DSH processes exit.
+3. **Regression guards**: selftest asserts the new route/handler/fast branch/no-fetch, clientcheck asserts `sendBeacon` and the typeof guards. All 0.3.93/0.3.94/0.3.95 fixes retained.
+
 ### Fix post-exit.ps1 missing UTF-8 BOM, which crashed every queued sync (0.3.95)
 
 The final root cause behind "auto pull/push enabled, clicking × still triggers nothing" was neither the queue logic nor the close hook — it was the **encoding of the executor script**. When 0.3.94 edited `post-exit.ps1`, the write tool stripped the leading **UTF-8 BOM (`EF BB BF`)**. Windows PowerShell 5.1 decodes a BOM-less Chinese UTF-8 script as GBK, turns full-width Chinese parentheses into quote characters, and fails with 55 syntax errors the moment the script starts. Result: the watcher was queued (`auto-sync-launch.log` logged "started"), but `auto-sync-wait.log` never got a new "waiting started" line — every queued sync (startup check, 2-minute recheck, ×-close trigger) crashed on launch, appearing as "nothing ever triggers".
@@ -729,6 +737,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-24 | 0.3.96 | Page-unload beacon (pagehide→sendBeacon /auto-exit) replaces the dead Electron close hook; fast check (local tracking ref, no fetch) queues the watcher in milliseconds, finally fixing "× does not trigger" |
 | 2026-11-24 | 0.3.95 | Fix post-exit.ps1 losing UTF-8 BOM (PS5.1 decoded as GBK, 55 syntax errors, crashed on launch): restored BOM on all three executors, selftest adds full ps1 BOM assertion to prevent regression |
 | 2026-11-24 | 0.3.94 | Fix cross-restart stale watchers holding the lock: lock records watchPid, reuse checks staleness, stale locks are killed and re-queued; post-exit wait self-clears stale watchers; fixes "switches on, clicking × still triggers nothing" |
 | 2026-11-24 | 0.3.93 | Clicking × to close DSH now checks once for auto pull/push and queues the watcher immediately (no more waiting for the 2-minute window); autoRestart semantics unified to !== false |

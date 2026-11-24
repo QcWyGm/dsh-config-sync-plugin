@@ -3680,6 +3680,44 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * 0.3.96：页面卸载信标——绕开 Electron 关窗钩子死结。
+     * 插件跑在 host 子进程里拿不到 electron.app，browser-window-created 事件也在插件 apply 前就错过了，
+     * 所以「点 × 立即判一次」这条链从 0.3.93 起从未真正触发过。改为在前端页面卸载时发一个
+     * navigator.sendBeacon 到 /config-sync/auto-exit，后端 fast 判一次并排 watcher；watcher 独立存活，
+     * DSH 进程全消失后由 post-exit.ps1 真正执行 pull/push。
+     * sendBeacon 是 fire-and-forget，浏览器会在页面卸载时把请求发出去且不等响应。
+     * 全程 typeof 守卫：clientcheck 用 new Function('window','fetch') 加载，没有 document/navigator。
+     */
+    function installExitBeacon() {
+      var noop = function () { }
+      try {
+        if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return noop
+        if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return noop
+        var fired = false
+        var fire = function () {
+          if (fired) return
+          fired = true
+          try {
+            // text/plain 避免任何预检；后端不 care body，只看 settings 与本地 drift。
+            var blob = new Blob(['{"action":"exit"}'], { type: 'text/plain;charset=UTF-8' })
+            navigator.sendBeacon('/config-sync/auto-exit', blob)
+          } catch (e) {
+            try { console.warn('[dsh-config-sync] exit beacon failed:', e) } catch { }
+          }
+        }
+        // pagehide 覆盖「× 关闭 / 页面导航 / 进程退出」；beforeunload 兜底老内核。
+        window.addEventListener('pagehide', fire)
+        window.addEventListener('beforeunload', fire)
+        return function () {
+          try { window.removeEventListener('pagehide', fire) } catch { }
+          try { window.removeEventListener('beforeunload', fire) } catch { }
+        }
+      } catch (e) {
+        return noop
+      }
+    }
+
     function apply(ctx) {
       // 侧栏行 + 配对面板：两个 slot 必须各自 inject（嵌套），再在作用域里成对 register。
       // 只 inject('main') 就向 sidebar.panellist 注册是无效的——区域还没被注入，注册落不下去。
@@ -3715,6 +3753,15 @@ window.__ModuleLoader__.load({
 
       // 界面还没完全起来时 fetch 可能扑空，所以稍等一会儿再查；只查一次，不轮询。
       try { setTimeout(announceLastResult, 1500) } catch { }
+
+      // 0.3.96：页面卸载信标（点 × / 关标签页 / 进程退出时判一次自动拉取/推送）。
+      // 不依赖 Electron closed 钩子——那条路在 host 子进程里拿不到 app，从未真正装成功过。
+      try {
+        var offBeacon = installExitBeacon()
+        if (typeof ctx.effect === 'function') ctx.effect(function () { return function () { try { offBeacon() } catch { } } })
+      } catch (error) {
+        try { console.warn('[dsh-config-sync] exit beacon install failed:', error) } catch { }
+      }
 
       // 0.3.76：给客户端的 sessions 服务套上 agent-busy 自愈钩子。
       // 拿不到 sessions（老版本宿主 / 服务还没起来）就静默跳过，面板功能不受影响。

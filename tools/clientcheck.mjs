@@ -116,7 +116,31 @@ check('云端仓库没配时推送/拉取禁用、还原仍可用',
     && source.includes("disabled: busy || !hasRepoPath, onClick: () => prepare('restore')"))
 check('面板有「提交说明」输入（生成推送脚本时带上）', source.includes('提交说明') && source.includes('prepare(\'push\', note)'))
 check('按钮文案用中文（推送 / 拉取）', source.includes("'只生成推送'") && source.includes("'只生成拉取'"))
+// 0.3.91：设置 → 通用 摘要行的远端信息会刷新，按钮换成「立即拉取/推送（会关闭 DSH）」
+check('设置摘要行展开时 fetch 远端再刷新（远端信息不陈旧）',
+  source.includes('const refreshRemoteNow = react.useCallback(async () =>')
+  && source.includes("callAuto({ action: 'check' })")
+  && source.includes('setInterval(refreshRemoteNow, 30000)')
+  && source.includes('onClick: refreshRemoteNow'))
+check('远端「未提交」纳入本机待同步、刷新按钮触发 fetch（0.3.92）',
+  source.includes('repo.uncommitted ?? repo.dirty')
+  && source.includes('data.repo.uncommitted ?? data.repo.dirty')
+  && source.includes('本机待同步 ${data.repo.pending}'))
+check('设置摘要行两个立即按钮走 pull-now / push-now 队列',
+  source.includes("actNow('pull-now')")
+  && source.includes("actNow('push-now')")
+  && source.includes("M('立即拉取（会关闭 DSH）', 'Pull now (closes DSH)')")
+  && source.includes("M('立即推送（会关闭 DSH）', 'Push now (closes DSH)')"))
 check('每个 inject 回调都返回了回收函数', recycle.length === 3 && recycle.every((r) => typeof r.stop === 'function'), `实际 ${recycle.length} 个`)
+// 0.3.96：页面卸载信标（sendBeacon）绕开 Electron 关窗钩子死结；且必须 typeof 守卫，
+// 否则本自检的 new Function('window','fetch') 环境没有 document/navigator 会 ReferenceError。
+check('页面卸载装 pagehide + beforeunload → sendBeacon(/config-sync/auto-exit)（0.3.96）',
+  source.includes("window.addEventListener('pagehide', fire)")
+  && source.includes("window.addEventListener('beforeunload', fire)")
+  && source.includes("navigator.sendBeacon('/config-sync/auto-exit'"))
+check('卸载信标无 document/navigator 环境不崩（typeof 守卫，本自检直接覆盖）',
+  source.includes("if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return noop")
+  && source.includes("if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return noop"))
 
 // 关键契约：sidebar.panellist 必须先被 inject，再往里 register（只 inject main 是无效的）
 const idxInjectSidebar = seq.indexOf('inject:sidebar.panellist')

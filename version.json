@@ -1,10 +1,10 @@
 {
-  "version": "0.3.95",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.95/dsh-config-sync-plugin-0.3.95.tgz",
-  "tgzBytes":427958,
-  "sha256":"2c31be44ca4926c0908f04842625a3d37da1ce4ada4f4987446b5433a1efdc33",
+  "version": "0.3.96",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.96/dsh-config-sync-plugin-0.3.96.tgz",
+  "tgzBytes":433107,
+  "sha256":"c611a9837bdd01aa58b2a141237f9f0094699a8721cb81e995c7af08b9fc361c",
   "releasedAt": "2026-11-24",
-  "notes": "修复 post-exit.ps1 丢 UTF-8 BOM 致排队同步全崩：0.3.94 编辑脚本时丢了 UTF-8 BOM，Windows PowerShell 5.1 按 GBK 解码→中文全角括号被解成引号→55 处语法错→脚本启动即崩，导致所有排队同步（启动首检/2分钟复查/点×触发）全部失效。这次把三处 post-exit.ps1 执行体（插件 runtime、配置仓库镜像、部署目录）用 UTF8Encoding($true) 补回 BOM，ParseFile 语法错从 55 降到 0；selftest 新增全量 runtime/*.ps1 必须带 BOM 的断言防回归；打包核验包内 post-exit.ps1 带 BOM。0.3.93 点×判一次 + 0.3.94 清僵死锁的修复都保留。",
-  "notesEn": "Fix post-exit.ps1 losing UTF-8 BOM, which crashed every queued sync: 0.3.94 stripped the BOM while editing the script; Windows PowerShell 5.1 decoded it as GBK → full-width Chinese parentheses became quotes → 55 syntax errors → the script crashed on launch, so every queued sync (startup check, 2-minute recheck, ×-close trigger) failed. This restores the BOM on all three post-exit.ps1 executors (plugin runtime, config-repo mirror, deployed dir) with UTF8Encoding($true); ParseFile syntax errors drop from 55 to 0; selftest adds a full runtime/*.ps1 BOM assertion to prevent regression; the packed tarball is verified to contain a post-exit.ps1 with BOM. Keeps the 0.3.93 close-click check and 0.3.94 stale-watcher lock fix.",
+  "notes": "修复「点 × 关闭不触发自动拉取/推送」的真凶：Electron 关窗钩子是死结——插件跑在 host 子进程里拿不到 electron.app，且 browser-window-created 事件在插件 apply 时窗口早建好就错过了，closed 回调永不执行，所以 0.3.93 起那条链从未真正触发过。改为前端页面卸载信标：pagehide/beforeunload → navigator.sendBeacon('/config-sync/auto-exit') → 后端新路由 fast 判一次（只读本地 tracking ref、不 git fetch，毫秒级返回，避免插件随 DSH 退出被杀前来不及排队）→ spawnWatcher，watcher 独立存活，DSH 进程全消失后由 post-exit.ps1 执行 pull/push。selftest/clientcheck 加断言防回归。保留 0.3.93/0.3.94/0.3.95 的全部修复。",
+  "notesEn": "Fix the real cause of 'closing × still does not trigger auto pull/push': the Electron close hook is a dead end — the plugin runs in the host child process with no electron.app, and browser-window-created fired long before plugin apply, so the closed callback never ran and the chain added in 0.3.93 never actually triggered. Replaced with a page-unload beacon: pagehide/beforeunload → navigator.sendBeacon('/config-sync/auto-exit') → a new backend route that checks once in fast mode (local tracking ref only, no git fetch, millisecond return, so the plugin can queue before DSH kills it) → spawnWatcher; the watcher lives independently and post-exit.ps1 runs pull/push after all DSH processes exit. selftest/clientcheck assertions added to prevent regression. Keeps all 0.3.93/0.3.94/0.3.95 fixes.",
   "minClient": "0.2.2-rc.2"
 }

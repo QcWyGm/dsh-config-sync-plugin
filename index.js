@@ -47,6 +47,9 @@ const ROUTE_FEEDBACK = '/config-sync/feedback'
 const ROUTE_CACHE_GUARD = '/config-sync/cache-guard'
 // 0.3.76：工作区显示状态（GET 读 / POST workspace 三态 | session 独立隐藏）
 const ROUTE_WORKSPACE_VIEW = '/config-sync/workspace-view'
+// 0.3.96：页面卸载信标（pagehide/beforeunload 的 navigator.sendBeacon）。
+// 不依赖 Electron 的 closed 事件——插件跑在 host 子进程里拿不到 app，且 browser-window-created 在插件 apply 时早就错过了。
+const ROUTE_AUTO_EXIT = '/config-sync/auto-exit'
 const SETTINGS_NAME = 'dsh-config-sync.json'
 /** 本插件自己的安装目录（插件根，含 runtime\ 与 index.js）—— 插件备份还原时的目标。 */
 const PLUGIN_ROOT = fileURLToPath(new URL('.', import.meta.url)).replace(/[\\/]+$/, '')
@@ -1553,6 +1556,26 @@ async function checkDrift(repo) {
   if (!counts) return null
   const [ahead, behind] = counts.trim().split(/\s+/).map((n) => Number(n) || 0)
   return { ahead, behind, branch, at: Date.now() }
+}
+
+/**
+ * 0.3.96：页面卸载信标专用——只用本地 tracking ref 算 ahead/behind，绝不 git fetch。
+ * checkDrift 会阻塞在 `git fetch origin`（网络，秒级），而 sendBeacon 到达后端后，
+ * 插件进程随时可能随 DSH 退出被杀，必须在毫秒级内完成 spawnWatcher。
+ * 本地 rev-list 用的是上次 fetch 留下的 origin/<branch>，对「离开时判一次」足够：
+ *   - 本地领先/未提交改动是即时的，push 判据准；
+ *   - 云端领先可能滞后到上次 fetch，但 2 分钟复查/面板 check 会持续刷新 tracking ref，
+ *     且真有云端更新时 pull 模式 watcher 自己会再 fetch 一次，不会漏。
+ * 本地算不出来就退回 autoState.drift 缓存；再没有就返回 null，由调用方保守处理。
+ */
+async function checkDriftFast(repo) {
+  if (!repo || !isDir(join(repo, '.git'))) return autoState.drift
+  const branch = await currentBranch(repo)
+  if (!branch) return autoState.drift
+  const counts = await git(repo, ['rev-list', '--left-right', '--count', `HEAD...origin/${branch}`])
+  if (!counts) return autoState.drift
+  const [ahead, behind] = counts.trim().split(/\s+/).map((n) => Number(n) || 0)
+  return { ahead, behind, branch, at: Date.now(), fast: true }
 }
 
 /** 系统确认框（立在 DSH 窗口前面，不开面板也看得见）。Yes → true。 */
@@ -3547,7 +3570,7 @@ function scheduleAutoStart(config) {
  * 关闭场景窗口都在关了，不弹确认框；autoPull 仍只在云端确实领先（或本机仓库还没内容）时才排队，
  * 免得没更新也白拉一次还把客户端重启回来。和 scheduleAutoStart 一样「拉取优先，二者只排一个」。
  */
-async function triggerAutoSyncOnClose(config) {
+async function triggerAutoSyncOnClose(config, options = {}) {
   const dshHome = config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh')
   try {
     const settings = readSettings(dshHome)
@@ -3575,7 +3598,9 @@ async function triggerAutoSyncOnClose(config) {
       return { queued: false }
     }
 
-    const drift = await checkDrift(repo)
+    // 0.3.96：页面卸载信标走 fast 模式——只读本地 tracking ref，毫秒级返回，绝不 git fetch。
+    // 原来的 Electron 关窗钩子（慢模式）仍可走 checkDrift，两条路共用后续判据。
+    const drift = options.fast ? await checkDriftFast(repo) : await checkDrift(repo)
     if (!drift) return { queued: false }
 
     // 拉取优先，和 scheduleAutoStart 一致；关闭时不再弹确认框，云端领先就排
@@ -3612,6 +3637,29 @@ async function triggerAutoSyncOnClose(config) {
   } catch (error) {
     logLaunch(dshHome, `退出前自动同步排队失败：${(error && error.message) || error}`)
     return { queued: false }
+  }
+}
+
+/**
+ * 0.3.96：页面卸载信标专用接口。
+ * 前端 pagehide → navigator.sendBeacon('/config-sync/auto-exit')，绕开失效的 Electron closed 钩子
+ * （插件跑在 host 子进程拿不到 app，且 browser-window-created 事件在插件 apply 时早错过了）。
+ * sendBeacon 是 fire-and-forget，页面卸载后浏览器会取消在途请求，所以这里必须毫秒级返回：
+ * 走 triggerAutoSyncOnClose 的 fast 模式（只读本地 tracking ref，不 git fetch）。
+ * 只排队 watcher，真正的 pull/push 由独立的 post-exit.ps1 在 DSH 进程全消失后执行。
+ */
+async function handleAutoExit(req, res, config) {
+  if (req.method !== 'POST') { sendJson(res, 405, { ok: false, error: 'POST only' }); return }
+  if (!originAllowed(req)) { sendJson(res, 403, { ok: false, error: 'cross-origin request rejected' }); return }
+  try {
+    // sendBeacon 的 body 可能是空 / text/plain / application/json，读不读都不影响排队；容错读一下即可。
+    try { await readBody(req) } catch { }
+    const result = await triggerAutoSyncOnClose(config, { fast: true })
+    sendJson(res, 200, { ok: true, ...result })
+  } catch (error) {
+    logLaunch(config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh'),
+      `auto-exit 信标处理失败：${(error && error.message) || error}`)
+    sendJson(res, 200, { ok: true, queued: false })
   }
 }
 
@@ -4665,6 +4713,12 @@ export function apply(ctx, config) {
         kind: 'exact',
         path: ROUTE_AUTO,
         handler: withLang(handleAuto),
+      }))
+      // 0.3.96：页面卸载信标（pagehide → sendBeacon），绕开 Electron closed 钩子死结
+      scoped.effect(() => scoped.webServer.register({
+        kind: 'exact',
+        path: ROUTE_AUTO_EXIT,
+        handler: withLang(handleAutoExit),
       }))
       scoped.effect(() => scoped.webServer.register({
         kind: 'exact',
