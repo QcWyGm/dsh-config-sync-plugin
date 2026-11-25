@@ -257,6 +257,10 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Fix watcher stuck in wait after × close due to orphan process (0.4.04)
+
+After clicking × the push watcher gets queued but can stall in wait. Root cause: when WatchPid is force-killed it often leaves a **windowless orphan DSH child** (started before the watcher, parent dead). The stale-watcher check required "all DSH processes newer than the watcher", which this orphan permanently broke — `newerAll.Count ≠ byName.Count`, so the watcher idled 30 min holding `auto-sync.lock` and no new watcher could take over. The check now looks for "a DSH instance older than the watcher WITH a foreground window": the real signal that "the queued DSH is still in use" is a windowed instance; windowless leftovers and new instances no longer block handoff, and the watcher exits 3 to clear the lock immediately. Selftest assertion added.
+
 ### npm fallback version normalization fix (0.4.02)
 
 npm normalizes `0.4.01` to `0.4.1` per semver, so the tarball is `dsh-config-sync-plugin-0.4.1.tgz`. Before 0.4.02 the fallback URL was built as `-0.4.01.tgz`, which 404s on npm. `npmTgzUrls` now strips leading zeros from numeric segments (`0.4.01`→`0.4.1`) before building the URL; GitHub release and version.json keep the user-specified version (same artifact, identical sha256). Selftest assertion added.
@@ -781,6 +785,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-25 | 0.4.04 | Fix watcher stuck in wait after × close due to windowless orphan process: stale check now looks for a leftover foreground window, clears lock and hands over immediately |
 | 2026-11-25 | 0.4.03 | Repackaged release: code identical to 0.4.02; only version and release metadata updated to 0.4.03 |
 | 2026-11-25 | 0.4.02 | Fix npm fallback version normalization: npm semver turns 0.4.01 into 0.4.1; strip leading zeros when building tarball URL, otherwise 404 |
 | 2026-11-25 | 0.4.01 | Auto sync only on active × close: scheduleAutoStart updates drift status only, handleSettings queues watcher without close, only × close/pagehide (shouldCloseDsh:true) actually closes DSH after queuing |

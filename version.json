@@ -1,10 +1,10 @@
 {
-  "version": "0.4.03",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.03/dsh-config-sync-plugin-0.4.03.tgz",
-  "tgzBytes":442688,
-  "sha256":"d2ce036cff6f8e00b05ae35b534add7dd53149f2da5e8e5ba0b2b4223f76ea4d",
+  "version": "0.4.04",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.04/dsh-config-sync-plugin-0.4.04.tgz",
+  "tgzBytes":443850,
+  "sha256":"ef32d18a743f7d23a600d98ea3fa85dcf30566b1265d8c8d2e7f5cba0e913620",
   "releasedAt": "2026-11-25",
-  "notes": "重新打包发布：代码与 0.4.02 一致，仅版本与发布元数据更新到 0.4.03。保留 0.4.02 的 npm semver 规范化修复（0.4.01→0.4.1），0.4.01 的项目级技能同步、自动同步仅在点 × 关闭时触发，以及 0.3.93-0.3.101 全部修复。",
-  "notesEn": "Repackaged release: code is identical to 0.4.02; only version and release metadata are updated to 0.4.03. Keeps 0.4.02 npm semver normalization fix (0.4.01→0.4.1), 0.4.01 project-level skills sync and auto-sync only on active × close, plus all 0.3.93-0.3.101 fixes.",
+  "notes": "修复点 × 关闭后 push watcher 卡在 wait 不执行：WatchPid 被强杀后常留下一个无前台窗口的孤儿 DSH 子进程（启动时间比 watcher 还早），旧判据「所有 DSH 都比 watcher 新」被它破坏，watcher 死等 30 分钟还霸占 auto-sync.lock。判定改为「有无比 watcher 更早、且有前台窗口的 DSH 实例」——无窗口残留/新实例不再挡住过期让位，watcher 立即 exit 3 清锁让新 watcher 接管。保留 0.4.03 及以前全部修复。",
+  "notesEn": "Fix watcher stuck in wait after × close: when WatchPid is force-killed it often leaves an orphan DSH child with no foreground window (started before the watcher); the old check 'all DSH newer than watcher' was broken by it, so the watcher idled 30 min holding auto-sync.lock. The check now looks for 'a DSH instance older than the watcher WITH a foreground window' — windowless leftovers/new instances no longer block stale-watcher handoff, so the watcher exits 3 and clears the lock immediately. Keeps 0.4.03 and all earlier fixes.",
   "minClient": "0.2.2-rc.2"
 }

@@ -73,9 +73,14 @@ if ($Phase -eq 'wait') {
     if ($WatchPid -gt 0 -and -not $byPid -and $byName.Count -gt 0) {
       $myStart = (Get-Process -Id $PID -ErrorAction SilentlyContinue).StartTime
       if ($myStart) {
-        $newerAll = @($byName | Where-Object { $_.StartTime -and $_.StartTime -ge $myStart })
-        if ($newerAll.Count -eq $byName.Count) {
-          WaitLog ('WatchPid {0} 已退出，现存 DSH 均为本等待启动后的新实例，判定为过期 watcher，退出让位' -f $WatchPid)
+        # 0.4.04：原判据「所有 DSH 都比 watcher 新」会被**无窗口的孤儿进程**破坏——
+        # 实测 WatchPid 被强杀后留下一个比 watcher 还早启动的子进程（父已死、hwnd=0），
+        # 它既不是用户在用的实例、也不会消失，把 newerAll.Count -eq byName.Count 永远卡死，
+        # watcher 死等 30 分钟还霸占 auto-sync.lock。真正代表「排队那次 DSH 还在用」的，
+        # 是比 watcher 早启动**且有前台窗口**的实例；无窗口残留/新实例都不该挡住让位。
+        $visibleOld = @($byName | Where-Object { $_.MainWindowHandle -ne 0 -and $_.StartTime -and $_.StartTime -lt $myStart })
+        if ($visibleOld.Count -eq 0) {
+          WaitLog ('WatchPid {0} 已退出，无遗留前台窗口（现存为残留进程或新实例），判定为过期 watcher，退出让位' -f $WatchPid)
           try {
             $lockFile = Join-Path $DshHome 'auto-sync.lock'
             if (Test-Path -LiteralPath $lockFile) {

@@ -1830,6 +1830,10 @@ console.log('== 0.3.94：清理跨重启僵死 watcher，锁不再被旧实例�
   check('post-exit wait：WatchPid 已死但进程名有新实例时判定过期 watcher',
     postSrc.includes('-not $byPid -and $byName.Count -gt 0')
     && postSrc.includes('判定为过期 watcher'), 'post-exit.ps1 过期判定')
+  check('0.4.04：过期判定改为看有无遗留前台窗口，不被无窗口孤儿进程卡死',
+    postSrc.includes('$visibleOld = @($byName | Where-Object { $_.MainWindowHandle -ne 0')
+    && postSrc.includes('$visibleOld.Count -eq 0')
+    && postSrc.includes('无遗留前台窗口'), 'post-exit.ps1 孤儿进程让位')
   check('post-exit wait：过期 watcher 清自己的锁并 exit 3 让位',
     /\$lock\.pid -eq \$PID/.test(postSrc) && /\bexit 3\b/.test(postSrc), 'post-exit.ps1 让位')
 }

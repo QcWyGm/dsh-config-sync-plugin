@@ -277,6 +277,10 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 修复点 × 关闭后 watcher 被孤儿进程卡在 wait（0.4.04）
+
+点 × 关闭后 push watcher 已经排上，但可能卡在 wait 阶段迟迟不执行。根因：`WatchPid` 被强杀后，常留下一个**无前台窗口的孤儿 DSH 子进程**（启动时间比 watcher 还早，父进程已死）。僵死 watcher 自清的旧判据要求「所有现存 DSH 都比 watcher 新」，这个孤儿进程把它永久破坏——`newerAll.Count ≠ byName.Count`，watcher 死等 30 分钟还霸占 `auto-sync.lock`，新 watcher 也没法接管。判定改成「有没有比 watcher 更早、且有前台窗口的 DSH 实例」：真正代表「排队那次 DSH 还在用」的是有窗口的实例；无窗口残留和新实例都不该挡住让位，watcher 立即 `exit 3` 清锁让新 watcher 接管。selftest 加断言防回归。
+
 ### npm 兜底下载的版本规范化修复（0.4.02）
 
 npm 按 semver 把版本号 `0.4.01` 规范化成 `0.4.1`，tarball 文件名是 `dsh-config-sync-plugin-0.4.1.tgz`。0.4.01 之前拼的是 `-0.4.01.tgz`，npm 兜底下载会 404。`npmTgzUrls` 现在对数字段去前导零（`0.4.01`→`0.4.1`）再拼 URL；GitHub release 与 version.json 仍保留用户指定的版本号（同一份产物、sha256 一致）。selftest 加断言防回归。
@@ -763,6 +767,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 | 日期 | 版本 | 要点 |
 |---|---|---|
+| 2026-11-25 | 0.4.04 | 修复点 × 关闭后 push watcher 被无窗口孤儿进程卡在 wait 不执行：过期判定改看有无遗留前台窗口，立即清锁让位 |
 | 2026-11-25 | 0.4.03 | 重新打包发布：代码与 0.4.02 一致，仅版本与发布元数据更新到 0.4.03 |
 | 2026-11-25 | 0.4.02 | 修复 npm 兜底下载的版本规范化：0.4.01 被 npm semver 规范化成 0.4.1，拼 tarball 时去前导零，否则 404 |
 | 2026-11-25 | 0.4.01 | 自动同步仅在主动关闭 DSH 窗口（×）时触发：scheduleAutoStart 只做 drift 状态更新，handleSettings 只排队不退出，只有 × 关闭/页面卸载走 shouldCloseDsh: true 真正关闭 DSH |
