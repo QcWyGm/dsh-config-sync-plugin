@@ -277,6 +277,16 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 勾选自动同步开关即时触发判断（0.3.99）
+
+以前勾选「启动时自动拉取」或「退出时自动推送」后，必须等到下一个 2 分钟周期（或退出 DSH）才会判断是否需要同步。这次把核心判断逻辑抽离为 `checkAndQueueAutoSync`，在三处复用：
+
+1. **scheduleAutoStart**（启动 8 秒后 + 每 2 分钟复查）
+2. **triggerAutoSyncOnClose**（点 × 关闭时）
+3. **handleSettings**（开关保存后）
+
+开关保存后，若已开启且仓库就位，立即判 drift→满足条件即排队 watcher 并关闭 DSH；手动触发模式（开关变更）跳过确认框，直接排队。不再有「勾了开关、等 2 分钟才动」的延迟。selftest 加 5 条断言防回归。保留 0.3.93-0.3.98 全部修复。
+
 ### 默认工作区会话纳入同步、资料仍各机独立（0.3.98）
 
 以前默认工作区整个跳过同步。原因：它的会话目录名由**本机 WorkspaceHome 绝对路径**编码（`--C-Users-...-default-workspace--`），两台机器路径不同，直接把 A 机的目录铺到 B 机只会留下 DSH 认不出的死目录（表现为默认工作区历史为空）。这次按「只同步会话、不同步资料」拆开处理：
@@ -735,6 +745,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 | 日期 | 版本 | 要点 |
 |---|---|---|
+| 2026-11-25 | 0.3.99 | 勾选自动同步开关即时触发判断（核心逻辑抽离为 checkAndQueueAutoSync，scheduleAutoStart/triggerAutoSyncOnClose/handleSettings 三路复用，开关变更即时排队，手动模式跳过确认框） |
 | 2026-11-25 | 0.3.98 | 默认工作区会话纳入同步（稳定名 --default-workspace--，apply 按本机 defaultWorkspaceId 重编码目录/cwd/projcache 并合并 sessionIds），资料仍各机独立 |
 | 2026-11-25 | 0.3.97 | 点 × 检测到待拉取/待推送后，从独立进程主动强制退出 DSH 进程族（detached taskkill /F），watcher 立刻执行，不再干等残留进程 |
 | 2026-11-24 | 0.3.96 | 页面卸载信标（pagehide→sendBeacon /auto-exit）取代失效的 Electron 关窗钩子，fast 判据（本地 tracking ref、不 fetch）毫秒级排队 watcher，真正修好「点 × 不触发」 |

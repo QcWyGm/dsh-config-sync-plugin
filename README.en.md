@@ -257,6 +257,16 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Toggle auto-pull/push now triggers immediate sync check (0.3.99)
+
+Previously toggling "Pull on startup" or "Push on exit" meant waiting for the next 2-minute cycle (or DSH exit) before any sync decision. The core logic is now factored into `checkAndQueueAutoSync`, reused in three places:
+
+1. **scheduleAutoStart** (8s after startup + every 2 min)
+2. **triggerAutoSyncOnClose** (× close)
+3. **handleSettings** (toggle save)
+
+When a switch is saved and already on with a ready repo, it instantly checks drift and queues the watcher + closes DSH if criteria are met; manual-trigger mode (toggle change) skips the confirm dialog. No more "toggled switch, wait 2 min for anything to happen". 5 selftest assertions added. Keeps all 0.3.93–0.3.98 fixes.
+
 ### Default workspace conversations now sync; its files stay local (0.3.98)
 
 Previously the whole default workspace was skipped. Reason: its session directory name is encoded from the **local WorkspaceHome absolute path** (`--C-Users-...-default-workspace--`); the two machines have different paths, so copying A's directory onto B only leaves a dead directory DSH cannot recognize (shows up as an empty default-workspace history). This version splits "sync conversations, not files":
@@ -753,6 +763,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-25 | 0.3.99 | Toggle auto-pull/push now triggers immediate sync check (core logic checkAndQueueAutoSync reused by scheduleAutoStart/triggerAutoSyncOnClose/handleSettings; toggle change queues immediately, manual-trigger mode skips confirm) |
 | 2026-11-25 | 0.3.98 | Default workspace conversations now sync (stable name --default-workspace--; apply re-encodes directory/cwd/projcache from local defaultWorkspaceId and merges sessionIds), files stay local |
 | 2026-11-25 | 0.3.97 | Clicking × with pending pull/push actively force-kills the DSH process family from a detached process (detached taskkill /F); the watcher runs immediately instead of waiting for orphaned processes |
 | 2026-11-24 | 0.3.96 | Page-unload beacon (pagehide→sendBeacon /auto-exit) replaces the dead Electron close hook; fast check (local tracking ref, no fetch) queues the watcher in milliseconds, finally fixing "× does not trigger" |

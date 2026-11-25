@@ -1905,6 +1905,23 @@ console.log('== 0.3.97：检测到待拉取/待推送就主动强制退出 DSH�
     /result && result\.queued[\s\S]{0,60}?forceCloseDshDetached/.test(idxSrc), 'index.js queued 守卫')
 }
 console.log('')
+console.log('== 0.3.99：开关变更即时触发自动同步判断（不等 2 分钟周期）==')
+{
+  const idxSrc = readFileSync(join(pluginRootSelf, 'index.js'), 'utf8')
+  check('新增 checkAndQueueAutoSync 核心判断函数',
+    /async function checkAndQueueAutoSync\(/.test(idxSrc), 'index.js checkAndQueueAutoSync')
+  check('scheduleAutoStart 复用 checkAndQueueAutoSync',
+    /await checkAndQueueAutoSync\(/.test(idxSrc), 'index.js scheduleAutoStart 复用')
+  check('handleSettings 保存 autoPull/autoPush 后立即调用 checkAndQueueAutoSync',
+    /changed\.autoPull \|\| changed\.autoPush/.test(idxSrc)
+    && /await checkAndQueueAutoSync\(/.test(idxSrc), 'index.js 即时触发')
+  check('checkAndQueueAutoSync 支持 isManualTrigger 跳过确认框',
+    /isManualTrigger/.test(idxSrc) && /skipConfirm/.test(idxSrc), 'index.js 手动触发模式')
+  check('checkAndQueueAutoSync 返回 queued/mode/reason 供上层判断',
+    /return \{ queued: true, mode:/.test(idxSrc)
+    && /return \{ queued: false, reason:/.test(idxSrc), 'index.js 返回结构')
+}
+console.log('')
 console.log('== 0.3.98：默认工作区会话同步（稳定名 --default-workspace--，资料仍不同步）==')
 {
   const capPath = join(pluginRuntime, 'capture.ps1')

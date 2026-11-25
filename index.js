@@ -2163,7 +2163,7 @@ async function handleSettings(req, res, config) {
     }
 
     const sshKey2 = sshKey || defaultSshKey()
-    sendJson(res, 200, {
+    const response = {
       ok: true,
       changed,
       gitRemoteSet: Boolean(gitSet),
@@ -2187,7 +2187,17 @@ async function handleSettings(req, res, config) {
         defaultWorkspaceAuto: !defaultWorkspace,
         settingsPath: file,
       },
-    })
+    }
+    // autoPull/autoPush 开关变更时，若已开启则立即判断并排队（不等 2 分钟周期）
+    if (changed.autoPull || changed.autoPush) {
+      const repoPathResolved = repo || resolveRepo(config?.repoPath, dshHome).repo || ''
+      const appRoot = resolveAppRoot(config?.appRoot) || ''
+      const newSettings = readSettings(dshHome)
+      if (repoPathResolved && isDir(join(repoPathResolved, '.git'))) {
+        await checkAndQueueAutoSync(dshHome, config, newSettings, repoPathResolved, appRoot, { isManualTrigger: true })
+      }
+    }
+    sendJson(res, 200, response)
   } catch (error) {
     sendJson(res, 400, { ok: false, error: String((error && error.message) || error) })
   }
@@ -3488,6 +3498,75 @@ async function handleAuto(req, res, config) {
   }
 }
 
+/** 核心判断逻辑：给定配置与仓库，判断是否需要自动拉取/推送，需要则排队 watcher 并关闭 DSH。
+ * 供 scheduleAutoStart（定时）、triggerAutoSyncOnClose（关闭钩子）、handleSettings（开关即时触发）复用。 */
+async function checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, options = {}) {
+  const { skipConfirm = false, isManualTrigger = false } = options
+  // 已经排队等退出了就别重复拉起 watcher
+  if (autoState.pending) return { queued: false, reason: 'already_pending' }
+  if (!repo || !isDir(join(repo, '.git'))) {
+    return { queued: false, reason: 'no_repo' }
+  }
+  const drift = await checkDrift(repo)
+  if (!drift) {
+    return { queued: false, reason: 'drift_failed' }
+  }
+  autoState.drift = drift
+
+  // autoPull：云端领先，且开启了自动拉取
+  if (settings.autoPull && drift.behind > 0) {
+    if (!skipConfirm && !isManualTrigger) {
+      const yes = await askConfirm(
+        t('云端有更新，要同步到本机吗？', 'The cloud has new commits — sync them to this machine?'),
+        t(
+          `云端比本机多 ${drift.behind} 个提交。\n`
+          + '同步需要先完全退出 DSH：确认后客户端会自动关闭，拉取完成后按设置自动重新打开。\n'
+          + `（本机领先 ${drift.ahead} 个提交，拉取不会动它们）`,
+          `The cloud is ${drift.behind} commit(s) ahead of this machine.\n`
+          + 'Syncing requires DSH to fully exit first: after you confirm, the client closes itself and reopens according to your settings once the pull finishes.\n'
+          + `(This machine is ${drift.ahead} commit(s) ahead — pulling leaves those alone.)`,
+        ),
+      )
+      if (!yes) return { queued: false, reason: 'user_cancelled_pull' }
+    }
+    const started = await spawnWatcher({ mode: 'pull', repo, appRoot, dshHome, restart: settings.autoRestart })
+    if (started.ok) {
+      autoState.pending = { mode: 'pull', at: Date.now(), restart: settings.autoRestart, watcherPid: started.pid, closeRequested: true }
+      closeDsh()
+      return { queued: true, mode: 'pull', reason: `behind ${drift.behind}` }
+    } else {
+      return { queued: false, reason: 'spawn_failed', error: started.error }
+    }
+  }
+
+  // autoPush：三个来源判据（领先提交 / 未提交改动 / 本机资料比上次同步新）
+  if (settings.autoPush) {
+    let dirty = 0
+    const raw = await git(repo, ['status', '--porcelain'])
+    if (raw) dirty = raw.split('\n').filter((l) => l.trim()).length
+    const syncState = readSyncState(dshHome)
+    const lp = localPending(dshHome, syncState.lastSyncAt, config?.profileName, { repo, appRoot })
+    const reasonZh = drift.ahead > 0 ? `领先 ${drift.ahead} 个提交`
+      : dirty > 0 ? `未提交 ${dirty} 项`
+        : (lp.known && lp.pending > 0) ? `本机 ${lp.pending} 个文件比上次同步新` : ''
+    const reasonEn = drift.ahead > 0 ? `${drift.ahead} commit(s) ahead`
+      : dirty > 0 ? `${dirty} uncommitted change(s)`
+        : (lp.known && lp.pending > 0) ? `${lp.pending} file(s) newer than the last sync` : ''
+    if (reasonZh) {
+      const restart = settings.autoRestart !== false
+      const started = await spawnWatcher({ mode: 'push', repo, appRoot, dshHome, restart })
+      if (started.ok) {
+        autoState.pending = { mode: 'push', at: Date.now(), reason: reasonZh, reasonZh, reasonEn, restart, watcherPid: started.pid, closeRequested: false }
+        closeDsh()
+        return { queued: true, mode: 'push', reason: reasonZh }
+      } else {
+        return { queued: false, reason: 'spawn_failed', error: started.error }
+      }
+    }
+  }
+  return { queued: false, reason: 'no_action_needed' }
+}
+
 /** 启动后的自动检查：延迟跑，避免和客户端自身的启动流程抢 IO；失败只记进状态，不打扰用户。 */
 function scheduleAutoStart(config) {
   const dshHome = config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh')
@@ -3496,80 +3575,10 @@ function scheduleAutoStart(config) {
   if (autoState.timer) return
   const run = async () => {
     try {
-      // 已经排队等退出了就别重复拉起 watcher：第二遍 fetch/stat 纯属浪费
       if (autoState.pending) return
       const repo = resolveRepo(config?.repoPath, dshHome).repo || ''
-      if (!repo || !isDir(join(repo, '.git'))) {
-        // 空目录是「等首次拉取」的正常状态：不记错误，免得面板的云端徽标把它当成 fetch 失败
-        autoState.lastCheckError = (repo && repoPhase(repo) === 'empty')
-          ? ''
-          : t('仓库还没就位，跳过本次自动检查', 'The repo is not in place yet — skipping this auto check')
-        autoState.lastCheckAt = Date.now()
-        return
-      }
-      autoState.checking = true
-      const drift = await checkDrift(repo)
-      autoState.checking = false
-      autoState.lastCheckAt = Date.now()
-      if (!drift) {
-        autoState.lastCheckError = t('读不到远端（fetch 失败或没有 origin）', 'Cannot read the remote (fetch failed or there is no origin)')
-        return
-      }
-      autoState.drift = drift
       const appRoot = resolveAppRoot(config?.appRoot) || ''
-
-      if (settings.autoPull && drift.behind > 0) {
-        const yes = await askConfirm(
-          t('云端有更新，要同步到本机吗？', 'The cloud has new commits — sync them to this machine?'),
-          t(
-            `云端比本机多 ${drift.behind} 个提交。\n`
-            + '同步需要先完全退出 DSH：确认后客户端会自动关闭，拉取完成后按设置自动重新打开。\n'
-            + `（本机领先 ${drift.ahead} 个提交，拉取不会动它们）`,
-            `The cloud is ${drift.behind} commit(s) ahead of this machine.\n`
-            + 'Syncing requires DSH to fully exit first: after you confirm, the client closes itself and reopens according to your settings once the pull finishes.\n'
-            + `(This machine is ${drift.ahead} commit(s) ahead — pulling leaves those alone.)`,
-          ),
-        )
-        if (yes) {
-          const started = await spawnWatcher({ mode: 'pull', repo, appRoot, dshHome, restart: settings.autoRestart })
-          if (started.ok) {
-            autoState.pending = { mode: 'pull', at: Date.now(), restart: settings.autoRestart, watcherPid: started.pid, closeRequested: true }
-            closeDsh()
-          } else {
-            autoState.lastCheckError = started.error
-          }
-        } else {
-          autoState.pending = null
-        }
-        return
-      }
-
-      if (settings.autoPush) {
-        // 该不该推，三个来源都算：本地领先的提交、未提交的改动、以及"本机资料比上次同步新"
-        // （新会话还没 capture 时仓库是干净的，只看 ahead 会把最该推的那种改动漏掉 —— 真实踩过）
-        let dirty = 0
-        const raw = await git(repo, ['status', '--porcelain'])
-        if (raw) dirty = raw.split('\n').filter((l) => l.trim()).length
-        const syncState = readSyncState(dshHome)
-        const lp = localPending(dshHome, syncState.lastSyncAt, config?.profileName, { repo, appRoot })
-        // 后台调度里拿不到请求语言，所以中英各存一份，由客户端按自己的语言挑
-        const reasonZh = drift.ahead > 0 ? `领先 ${drift.ahead} 个提交`
-          : dirty > 0 ? `未提交 ${dirty} 项`
-            : (lp.known && lp.pending > 0) ? `本机 ${lp.pending} 个文件比上次同步新` : ''
-        const reasonEn = drift.ahead > 0 ? `${drift.ahead} commit(s) ahead`
-          : dirty > 0 ? `${dirty} uncommitted change(s)`
-            : (lp.known && lp.pending > 0) ? `${lp.pending} file(s) newer than the last sync` : ''
-        if (reasonZh) {
-          // 自动推送不需要确认（用户已开开关），排队等退出即可；推完把客户端拉回来
-          const restart = settings.autoRestart !== false
-          const started = await spawnWatcher({ mode: 'push', repo, appRoot, dshHome, restart })
-          if (started.ok) {
-            autoState.pending = { mode: 'push', at: Date.now(), reason: reasonZh, reasonZh, reasonEn, restart, watcherPid: started.pid, closeRequested: false }
-          } else {
-            autoState.lastCheckError = started.error
-          }
-        }
-      }
+      await checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot)
     } catch (error) {
       autoState.checking = false
       autoState.lastCheckAt = Date.now()

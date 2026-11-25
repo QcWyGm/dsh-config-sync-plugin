@@ -1,10 +1,10 @@
 {
-  "version": "0.3.98",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.98/dsh-config-sync-plugin-0.3.98.tgz",
-  "tgzBytes":438954,
-  "sha256":"26d0c365b3393e258029643bcbd05c849a450282d807c1fd3bef4955c480b526",
+  "version": "0.3.99",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.99/dsh-config-sync-plugin-0.3.99.tgz",
+  "tgzBytes":440129,
+  "sha256":"9b0e9cbce0298cb1b519130056786a315fc3fb2b7794181c0aed5aaa7839bb43",
   "releasedAt": "2026-11-25",
-  "notes": "默认工作区的「会话」纳入同步，「资料」仍各机独立：以前默认工作区整个跳过（会话目录名由本机 WorkspaceHome 绝对路径编码，跨机不同会留死目录）。这次只同步它的会话——capture 把默认工作区会话目录写成跨机稳定名 --default-workspace--，会话头 cwd 归一到 {{WORKSPACE_HOME}}/default-workspace；apply 按本机 workspace.json 的 defaultWorkspaceId 反查本机默认工作区路径，重编码会话目录名、改会话头 cwd、对齐 projcache、并把会话 id 并入本机默认工作区登记。资料不同步：capture 按 defaultWorkspaceId 跳过默认工作区资料拷贝，但 workspace-registry.json 里的登记条目保留（会话归属需要）。普通工作区、im、其余机制与勾选过滤全部不变。selftest 加 10 条断言防回归。保留 0.3.93-0.3.97 全部修复。",
-  "notesEn": "Default workspace conversations now sync; its files stay local: previously the whole default workspace was skipped (its session directory name is encoded from the local WorkspaceHome absolute path, which differs across machines and leaves a dead directory). Now only its conversations sync — capture writes the default-workspace session directory under a cross-machine stable name --default-workspace-- and normalizes the session header cwd to {{WORKSPACE_HOME}}/default-workspace; apply resolves the local default workspace path from this machine's workspace.json global.defaultWorkspaceId, re-encodes the session directory name, fixes the header cwd, aligns projcache, and merges the session ids into the local default workspace registry entry. Files stay local: capture skips default-workspace file copying by defaultWorkspaceId, but keeps its registry entry (needed for session ownership). Normal workspaces, im, all other mechanics and scope filters unchanged. 10 selftest assertions added. Keeps all 0.3.93-0.3.97 fixes.",
+  "notes": "勾选自动拉取/推送后立即判断并同步（不等 2 分钟周期）：新增 checkAndQueueAutoSync 核心函数，scheduleAutoStart、triggerAutoSyncOnClose、handleSettings 三路复用。开关变更时若已开启且仓库就位，立即判 drift→满足条件即排队 watcher 并关闭 DSH；手动触发模式跳过确认框。保留 0.3.93-0.3.98 全部修复。",
+  "notesEn": "Auto pull/push now triggers immediately on toggle (no 2-min wait): new checkAndQueueAutoSync core function reused by scheduleAutoStart, triggerAutoSyncOnClose, and handleSettings. When autoPull/autoPush is turned on and repo is ready, it instantly checks drift and queues watcher + closes DSH if criteria met; manual-trigger mode skips confirm dialog. Keeps all 0.3.93-0.3.98 fixes.",
   "minClient": "0.2.2-rc.2"
 }
