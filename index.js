@@ -3428,6 +3428,18 @@ async function handleConflict(req, res, config) {
         head: obj.head || '',
         remoteHead: obj.remoteHead || '',
         backupDir: obj.backupDir || '',
+        // 0.4.09：本地提交导致分叉时 sync.ps1 在清单写入 divergence（含处理方式），透传给面板
+        divergence: obj.divergence ? {
+          kind: String(obj.divergence.kind || ''),
+          localAhead: Number(obj.divergence.localAhead) || 0,
+          remoteAhead: Number(obj.divergence.remoteAhead) || 0,
+          base: String(obj.divergence.base || ''),
+          branch: String(obj.divergence.branch || ''),
+          remoteHead: String(obj.divergence.remoteHead || ''),
+          steps: String(obj.divergence.steps || ''),
+          repo: String(obj.repo || ''),
+          at: String(obj.divergence.at || ''),
+        } : null,
         items,
       })
       return

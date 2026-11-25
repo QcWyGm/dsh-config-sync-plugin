@@ -1362,6 +1362,14 @@ window.__ModuleLoader__.load({
           h('div', { style: { flex: 1 } }, null),
           h('button', { type: 'button', style: S.btn, disabled: busy, onClick: load }, busy ? M('刷新中…', 'Refreshing…') : M('刷新', 'Refresh')),
         ),
+        state.divergence ? h(
+          'div',
+          { style: { ...S.hint, color: 'var(--dsw-alias-state-error-primary)', whiteSpace: 'pre-wrap' } },
+          M(
+            '⚠ 本地有提交导致分支分叉（本地领先 ' + state.divergence.localAhead + '、云端领先 ' + state.divergence.remoteAhead + '），无法快进。逐项选「用本机/用云端」解决不了分叉，请先执行下面任一条处理方式，再点「立即拉取」：\n' + String(state.divergence.steps || '').split('<repo>').join(state.repo || '仓库路径'),
+            '⚠ Branches diverged by local commits (local ahead ' + state.divergence.localAhead + ', cloud ahead ' + state.divergence.remoteAhead + '); fast-forward blocked. Per-file choices cannot fix this. Run one step below, then click Pull now:\n' + String(state.divergence.steps || '').split('<repo>').join(state.repo || 'repo path')
+          )
+        ) : null,
         h('div', { style: S.hint },
           M(
             '这些文件本机有、云端也有同名版本，git 不肯直接覆盖。逐项选：用云端 = 丢弃本机那份；用本机 = 先让云端落地、再把本机版写回，下次推送带上。两份副本都会存进备份目录，展开后哪一份都能还原。',

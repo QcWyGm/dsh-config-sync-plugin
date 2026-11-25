@@ -277,6 +277,16 @@ function Write-ConflictReadme([string]$BackupDir, $Report) {
   foreach ($it in @($Report.items)) {
     $lines += ('  ' + $it.path + '  [' + $it.kind + ']  本机/Local ' + $it.localSize + 'B（备份 ' + $it.localSaved + '）  云端/Cloud ' + $it.remoteSize + 'B（备份 ' + $it.cloudSaved + '）')
   }
+  # 分支分叉处理（同样展示在备份 README 里，面板「同步冲突」卡另有一份）
+  if ($Report.divergence) {
+    $dv = $Report.divergence
+    $lines += ''
+    $lines += '⚠ 分支分叉 / Diverged branches'
+    $lines += ('  本地领先 ' + $dv.localAhead + ' 个提交，云端领先 ' + $dv.remoteAhead + ' 个；merge --ff-only 无法快进。')
+    $lines += '  处理方式（选一条执行，再点「立即拉取」）：'
+    @($dv.steps -split "`n") | ForEach-Object { $lines += ('    ' + $_) }
+    $lines += ''
+  }
   $text = (($lines -join "`r`n") + "`r`n")
   [IO.File]::WriteAllText((Join-Path $BackupDir $ConflictReadmeName), $text, (New-Object Text.UTF8Encoding($false, $false)))
 }
@@ -294,6 +304,45 @@ function Get-PreviewText([string]$Text, [int]$Max = 1500) {
   算出「本地会被云端覆盖、因而挡住快进」的文件，落一份备份 + 清单 JSON，返回条目数（0 = 没冲突）。
   只认 ff 可行的场景：本地领先远端时不叫冲突，那是另一回事（pull --ff-only 会明确报 not possible to fast-forward）。
 #>
+# PS 函数：检测本地提交导致分叉（返回 $null 表示无分叉阻碍）
+# 返回值字段供 sync-conflicts.json 的 divergence 段与面板展示使用
+function Get-DivergenceInfo([string]$RemoteRef, [string]$HeadBefore) {
+  # 远端已是 HEAD 祖先 → 能快进，无分叉问题
+  $anc = (Get-GitText ('merge-base --is-ancestor HEAD ' + $RemoteRef))
+  if ($anc.Code -eq 0) { return $null }
+  # HEAD 已是远端祖先 → 本地落后，正常快进场景
+  $behind = (Get-GitText ('merge-base --is-ancestor ' + $RemoteRef + ' HEAD'))
+  if ($behind.Code -eq 0) { return $null }
+
+  $remoteHead  = (Get-GitText ('rev-parse --short ' + $RemoteRef)).Text
+  $localAhead  = (Get-GitText ('rev-list --count ' + $RemoteRef + '..HEAD')).Text
+  $remoteAhead = (Get-GitText ('rev-list --count HEAD..' + $RemoteRef)).Text
+  $baseFull = (Get-GitText ('merge-base HEAD ' + $RemoteRef)).Text
+  $branchNow   = (Get-GitText 'rev-parse --abbrev-ref HEAD').Text
+  if ($localAhead -notmatch '^[0-9]+$') { $localAhead = '0' }
+  if ($remoteAhead -notmatch '^[0-9]+$') { $remoteAhead = '0' }
+
+  # 处理方式写清楚：可逆、不丢本机提交；双机并发 push 是根因
+  $steps = @(
+    '① 看分叉：git -C "<repo>" log --oneline --graph --decorate --all -10'
+    ('② 保留本机提交：git -C "<repo>" rebase origin/' + $branchNow + ' 把本机提交接到远端最新之后（有冲突解决后 git rebase --continue）')
+    ('   推送：git -C "<repo>" push origin ' + $branchNow + '，再点「立即拉取」')
+    ('③ 不要本机提交：git -C "<repo>" reset --hard origin/' + $branchNow + '（会丢弃本机提交，先备份），再点「立即拉取」')
+    '④ 根因是双机同时 push 同一仓库：固定一台推送、另一台只拉取，避免再次分叉'
+  ) -join [Environment]::NewLine
+
+  return [pscustomobject]@{
+    kind        = 'diverged'
+    remoteHead  = $remoteHead
+    localAhead  = [int]$localAhead
+    remoteAhead = [int]$remoteAhead
+    base        = $(if ($baseFull.Length -ge 7) { $baseFull.Substring(0, 7) } else { $baseFull })
+    branch      = $branchNow
+    steps       = $steps
+    at          = (Get-Date).ToString('o')
+  }
+}
+
 function New-ConflictReport([string]$RemoteRef, [string]$HeadBefore) {
   $cloud = @((Read-GitLines ('diff --name-only HEAD ' + $RemoteRef)).Lines)
   if ($cloud.Count -eq 0) { return 0 }
@@ -953,6 +1002,33 @@ if ($report) {
     Die ("git fetch 失败：连不上远端或认证有问题（" + (Get-RemoteAuthHint (Get-GitText 'remote get-url origin').Text) + "，再重跑）。")
   }
   $fetchedThisRun = $true
+  # 0.4.09：先判「本地有提交导致分叉」——这是 merge --ff-only 失败的独立原因，
+  # 不能用逐项选「用本机/用云端」解决。把处理方式写进清单，让面板也展示出来。
+  $div = Get-DivergenceInfo $remoteRef $headBeforePull
+  if ($div) {
+    Say ""
+    Say ("  [!] 本地有提交导致分叉（本地领先 " + $div.localAhead + " 个提交，云端领先 " + $div.remoteAhead + " 个），无法快进")
+    Say "      处理方式（选一条执行后，再点「立即拉取」）："
+    @($div.steps -split "`n") | ForEach-Object { Say ("      " + $_) }
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $backupDir = Join-Path (Join-Path $DshHome 'backups') ('conflict-' + $stamp + '-分支分叉-Divergence')
+    try { New-Item -ItemType Directory -Path $backupDir -Force | Out-Null } catch { }
+    $divReport = [ordered]@{
+      at         = $div.at
+      repo       = $RepoRoot
+      head       = $headBeforePull
+      remote     = $remoteRef
+      remoteHead = $div.remoteHead
+      backupDir  = $backupDir
+      items      = @()
+      divergence = $div
+    }
+    Write-ConflictFile $divReport
+    Say ("      清单：{0}" -f (Get-ConflictPath))
+    Say "      双机同时 push 同一仓库是根因；固定一台推送、另一台只拉取。"
+    exit 6
+  }
+
   $anc = (Get-GitText ('merge-base --is-ancestor HEAD ' + $remoteRef))
   if ($anc.Code -eq 0) {
     $conflictCount = New-ConflictReport $remoteRef $headBeforePull
@@ -995,9 +1071,21 @@ if ($LASTEXITCODE -ne 0) {
     Die ("拉取失败：连不上远端 / SSH 认证或命令有问题（不是本地改动）。先自检：" +
          "①GIT_SSH_COMMAND 第一个词必须是 ssh.exe 本体，可先 set GIT_SSH_COMMAND 什么都不设改用 .ssh\config；" +
          "②" + (Get-RemoteAuthHint (Get-GitText 'remote get-url origin').Text) + "；③再跑 git -C `"$RepoRoot`" ls-remote --heads origin 看退出码。")
-  } elseif ($pullOut -match 'CONFLICT|not possible to fast-forward|Not possible to fast-forward|Your local changes|overwritten by merge|would be overwritten') {
-    Die ("拉取失败：本地有未提交改动或与远端冲突（merge --ff-only 拒绝非快进）。先处理（git -C `"$RepoRoot`" status / stash / 解决冲突）再重跑；" +
-         "本脚本不会替你合并。")
+   } elseif ($pullOut -match 'not possible to fast-forward|Not possible to fast-forward|Diverging branches') {
+     # 0.4.09：分叉单独分类，给出和冲突检测同一套处理方式，避免误报成「本地有未提交改动」
+     $dv = Get-DivergenceInfo $remoteRef $headBeforePull
+     if ($dv) {
+       $dvSteps = @($dv.steps -split "`n") -join "`n        "
+       Die ("拉取失败：本地有提交导致分支分叉（本地领先 " + $dv.localAhead + "、云端领先 " + $dv.remoteAhead + "），无法快进。`n" +
+            "        处理方式（选一条执行后再点「立即拉取」）：`n        " + $dvSteps + "`n" +
+            "        处理清单也已写入面板「同步冲突」卡；双机同时 push 是根因，固定一台推送。")
+     } else {
+       Die ("拉取失败：分支不能快进（分叉）。执行 git -C `"$RepoRoot`" log --oneline --graph --decorate --all 查看，" +
+            "再决定 rebase 保留本机提交或 reset --hard 丢弃后重拉。")
+     }
+   } elseif ($pullOut -match 'CONFLICT|Your local changes|overwritten by merge|would be overwritten') {
+     Die ("拉取失败：本地有未提交改动或文件冲突（merge --ff-only 拒绝非快进）。先处理（git -C `"$RepoRoot`" status / stash / 解决冲突）再重跑；" +
+          "本脚本不会替你合并。")
   } else {
     Die "拉取失败（原因见上面的 git 输出）。先把那几行原文看完再决定，别按「本地有改动」的思路瞎猜。"
   }

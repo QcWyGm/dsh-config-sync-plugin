@@ -2019,5 +2019,27 @@ console.log('== 0.4.06：点 × 由后端窗口监视触发（不依赖前端信
     postSrc.includes('$waited -gt 300')
     && postSrc.includes('-and -not $hadVisible'), 'post-exit.ps1 让位收紧')
 }
+
+console.log('')
+console.log('== 0.4.09：本地提交导致分叉，冲突检测展示处理方式 ==')
+{
+  const syncSrc = readFileSync(join(pluginRootSelf, 'runtime', 'sync.ps1'), 'utf8')
+  const idxSrc2 = readFileSync(join(pluginRootSelf, 'index.js'), 'utf8')
+  const cliSrc = readFileSync(join(pluginRootSelf, 'client.js'), 'utf8')
+  check('sync.ps1 新增 Get-DivergenceInfo 检测本地提交分叉',
+    syncSrc.includes('function Get-DivergenceInfo') && syncSrc.includes('merge-base --is-ancestor HEAD '), 'sync.ps1 分叉检测')
+  check('sync.ps1 pull 冲突检测阶段调用分叉判断并写入清单',
+    /\$div = Get-DivergenceInfo \$remoteRef/.test(syncSrc) && syncSrc.includes('divergence = $div'), 'sync.ps1 分叉清单')
+  check('sync.ps1 处理方式含保留(rebase)/丢弃(reset)与双机根因',
+    syncSrc.includes('rebase origin/') && syncSrc.includes('reset --hard origin/') && syncSrc.includes('双机同时 push'), 'sync.ps1 处理方式')
+  check('sync.ps1 diff 失败分类把 not possible to fast-forward 单独处理',
+    /not possible to fast-forward\|Not possible to fast-forward\|Diverging branches/.test(syncSrc), 'sync.ps1 分叉分类')
+  check('sync.ps1 备份 README 里展示分叉处理',
+    syncSrc.includes('分支分叉 / Diverged branches') && syncSrc.includes('$Report.divergence'), 'sync.ps1 README 分叉')
+  check('index.js 冲突接口透传 divergence 字段',
+    idxSrc2.includes('divergence: obj.divergence') && idxSrc2.includes('localAhead: Number'), 'index.js divergence 透传')
+  check('client.js 冲突卡展示分叉处理方式',
+    cliSrc.includes('state.divergence ? h(') && cliSrc.includes('本地有提交导致分支分叉'), 'client.js 分叉展示')
+}
 process.exit(failures === 0 ? 0 : 1)
 
