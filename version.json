@@ -1,8 +1,8 @@
 {
-  "version": "0.4.07",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.07/dsh-config-sync-plugin-0.4.07.tgz",
-  "tgzBytes": 451147,
-  "sha256": "ba92f3e7c8463e698e343e13107aa39f6afc9837d24edf105bf5cf62970236cd",
+  "version": "0.4.08",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.08/dsh-config-sync-plugin-0.4.08.tgz",
+  "tgzBytes": 451149,
+  "sha256": "81ed610703d29b3fa4c22a0bba20165b892be5fb4561197a4618b553130407f2",
   "releasedAt": "2026-11-25",
   "notes": "修复跨机同步后技能管理报 Skills Source file is unreadable: ledger.json: Expected ',' or '}'：根因 Get-AppRootPattern 兜底正则的否定字符类与看前/看后断言没排除反斜杠，把 G:\\DeepSeekHarness\\ 结尾的 \\ 连同目录名一起吞掉，JSON 里的 \\\" 变成裸 \"，字符串提前闭合，导致 mnemon 下 ledger.json/evals.json/trajectories 损坏。0.4.07 让正则在看前/看后与字符类中都排除反斜杠，普通路径仍正确转 {{APP_ROOT}}，JSON 转义 \\\\ 保持不变；配套 dsh-sync-common.ps1 BOM 与 PS5.1 语法防回归。",
   "notesEn": "Fix 'Skills Source file is unreadable: ledger.json: Expected , or }' after cross-machine sync. Root cause: Get-AppRootPattern's fallback regex did not exclude backslashes in its lookaround and character class, so it swallowed the trailing backslash together with G:\\DeepSeekHarness, turning JSON \\\" into a bare quote and closing the string early — corrupting ledger.json/evals.json/trajectories under mnemon. 0.4.07 excludes backslashes in the lookaround and character class: plain paths still map to {{APP_ROOT}}, JSON escapes stay intact. Includes BOM and PS5.1 syntax regression guards for dsh-sync-common.ps1.",
