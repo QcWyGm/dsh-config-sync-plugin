@@ -808,14 +808,12 @@ $settingsMap = @(
   @{ Repo = 'settings\workspace-archives.json';    Src = (Join-Path $DshHome 'dsh-session-manager\workspace-archives.v1.json');   Label = 'DSH 工作区隐藏状态' }
 )
 
-# ---------- 0.5 宿主版本契约（一切动作之前先校验） ----------
-# 为什么要在最前面校验：
-#   仓库的 bundle 清单里有 @deepseek-ai/dsh-experimental-* 这类「宿主自带、按版本强绑定」的项
-#   （例如 cot-translation 需要主进程同版本的 typert 服务）。它们不经过 pnpm、不在 dependencies 里，
-#   目标机的客户端构建只要不同，启动期就会在 entry loading 阶段抛错，整个应用起不来。
-#   旧脚本对此毫无校验：清单整表覆盖、自检只数数量，故障要等双击图标才暴露。
-#   现在的规则：版本对不上 → 直接拒绝（可显式 -AllowVersionDrift 放行，但实验性 bundle 一律剔除），
-#   拒绝发生在备份、还原、写文件之前。
+# ---------- 0.5 宿主版本契约（只提示、不阻断拉取；0.4.10 起） ----------
+# 0.4.09 及以前：版本对不上直接 Die，pull 必须加 -AllowVersionDrift 才能继续。
+# 0.4.10 起：配置同步拉取不再校验「本机 app / 仓库契约」是否一致——版本不一致只写一条提示，
+#   拉取照常进行（等价于自动带上 -AllowVersionDrift）。版本差异本身不该阻断配置/技能/资料同步。
+#   实验性 bundle（@deepseek-ai/dsh-experimental-*，宿主自带、按版本强绑定）仍按下面的门控剔除，
+#   避免把为别的客户端构建准备的 bundle 铺到本机、启动期 entry loading 崩溃。
 $contractPath = Join-Path $RepoRoot 'profile\host-contract.json'
 $hostAppVersion = Get-HostAppVersion $AppRoot
 $contractVersion = $null
@@ -824,17 +822,12 @@ if (Test-Path -LiteralPath $contractPath) {
 }
 $versionDrift = $false
 if (-not $hostAppVersion) {
-  Warn "读不到客户端 app 版本（$AppRoot\resources\app\package.json 与 resources\app.asar 都没读到）——无法做版本校验"
+  Warn "读不到客户端 app 版本（$AppRoot\resources\app\package.json 与 resources\app.asar 都没读到）——跳过版本提示，拉取照常进行"
 } elseif (-not $contractVersion) {
-  Warn "仓库缺少 profile\host-contract.json（或里面没有 appVersion）——跳过版本校验"
+  Warn "仓库缺少 profile\host-contract.json（或里面没有 appVersion）——跳过版本提示，拉取照常进行"
 } elseif ($hostAppVersion -ne $contractVersion) {
   $versionDrift = $true
-  Warn "宿主版本不一致：本机 app = $hostAppVersion，仓库契约 = $contractVersion"
-  if (-not $AllowVersionDrift) {
-    Die ("两端客户端不是同一版，未改动任何文件。请先把两台升到同一版；" +
-         "或加 -AllowVersionDrift 只同步配置/技能/资料（会剔除全部实验性 bundle，避免启动期崩溃）。")
-  }
-  Warn "已加 -AllowVersionDrift：继续同步，但剔除实验性 bundle"
+  Warn "宿主版本不一致：本机 app = $hostAppVersion，仓库契约 = $contractVersion —— 0.4.10 起不再阻断拉取，继续同步（实验性 bundle 会剔除）"
 } else {
   Ok "宿主版本一致（app = $hostAppVersion）"
 }

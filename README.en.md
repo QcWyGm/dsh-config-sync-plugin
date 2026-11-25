@@ -43,7 +43,7 @@ Source A                          Remote (Gitee / GitHub / …)       Target B
 
 | Item | Requirement | When missing |
 |---|---|---|
-| Client version | Same on both machines (checked via `profile\host-contract.json`) | `version mismatch` in the pull log; only `-AllowVersionDrift` forces it |
+| Client version | Since 0.4.10 no need to match: version differences only show a notice, pull is not blocked (experimental bundles are still dropped) | `version mismatch` notice in the panel/log; configs still sync |
 | Target `.dsh` | The client must have run at least once, so `profiles\<profile>` exists | `[X] target profile does not exist (DSH never installed here?)` → pull aborts |
 | Node / Electron runner | Ships with the client (`<AppRoot>\node.exe` or `DeepSeek Harness.exe`) | `no usable built-in runtime`, session cwd is not rewritten → **the session list stays empty** |
 | Repo skeleton | Written automatically by the source machine's initial push | A repo with only `settings\` and no `apply.ps1` cannot run on B; redo the initial push |
@@ -636,7 +636,7 @@ The panel has a "Sync content" card (placed at the very bottom of the page): the
 - Skipping applies to **both directions**: `capture.ps1` stops capturing (nothing new lands in the repo) and `apply.ps1` stops restoring (your machine is untouched). `-PruneSkills` also stops treating "a skill you unchecked" as an extra to delete.
 - The card carries one more switch, "Also delete the cloud copy when unchecked", **off by default**: while off, unchecking just means "this machine stops caring" and the cloud copy stays, so re-ticking resumes immediately; when on, unchecking really deletes the matching folder/sub-path from the repo on the next push (the other machine can no longer pull it) and **that deletion cannot be undone**.
 - Items you cannot tick (the five profile files, mnemon) are deliberately group-level switches: the lockfile specifiers must match package.json, and excluding one alone breaks installation.
-- **The "Local profile" group is required and cannot be unchecked** (the panel shows "required" and greys the checkbox out). It is not an optional extra but a precondition of `apply.ps1`: when `profile\package.json` or `profile\cordis.patch.yml` is missing from the repo, a pull stops with `[X] 仓库内容不完整`; and `profile\host-contract.json` in the same group is the version-consistency check between the two machines — lose it and configs are laid down across mismatched client versions, which can leave the app unable to start. Editing `config-sync-scope.json` to `false` does not help either: `capture.ps1`, `apply.ps1` and the panel all treat it as on (`Test-SyncGroupEnabled` pins it).
+- **The "Local profile" group is required and cannot be unchecked** (the panel shows "required" and greys the checkbox out). It is not an optional extra but a precondition of `apply.ps1`: when `profile\package.json` or `profile\cordis.patch.yml` is missing from the repo, a pull stops with `[X] 仓库内容不完整`; and `profile\host-contract.json` in the same group since 0.4.10 only feeds the "App / contract" info strip — version differences no longer block pull. Editing `config-sync-scope.json` to `false` does not help either: `capture.ps1`, `apply.ps1` and the panel all treat it as on (`Test-SyncGroupEnabled` pins it).
 
 ## Plugin data & extra paths (0.3.51)
 

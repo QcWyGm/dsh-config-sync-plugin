@@ -1,10 +1,10 @@
 {
-  "version": "0.4.09",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.09/dsh-config-sync-plugin-0.4.09.tgz",
-  "tgzBytes": 453298,
-  "sha256": "488eb211bcd5a920c8759aec8f0657186483e080c44fa17c56c591189df746f4",
+  "version": "0.4.10",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.10/dsh-config-sync-plugin-0.4.10.tgz",
+  "tgzBytes":544681,
+  "sha256":"9ad73cefc91836179caa1b7506624255cbda65ac44ed4133386579c335de0ce6",
   "releasedAt": "2026-11-25",
-  "notes": "双机并发 push 同一配置仓库会让分支分叉，pull 的 merge --ff-only 拒绝非快进；此前只在失败后报笼统的「本地有未提交改动」，且逐项选「用本机/用云端」解决不了分叉。0.4.09 在冲突检测阶段就用 merge-base 判出分叉，把本地/云端各自领先提交数、base、处理步骤（保留本机=rebase 后推送；不要本机=reset --hard 到远端；双机固定一台推送）写进 sync-conflicts.json 的 divergence 字段，并同步展示在备份 README 与面板「同步冲突」卡；merge 失败分类也把分叉单独报出，不再误报成未提交改动。",
-  "notesEn": "Two machines pushing to the same config repo diverge; pull merge --ff-only refuses non-fast-forward. Previously it only reported a generic \"local changes\" error after failure, and per-file cloud/local choices cannot fix a divergence. 0.4.09 detects divergence during conflict detection via merge-base, records local/remote ahead counts, base and steps (keep local = rebase then push; drop local = reset --hard to remote; fix one-pusher-one-puller) in the divergence field of sync-conflicts.json, shown in both the backup README and the panel Sync-conflicts card; the merge failure classification now reports divergence separately instead of mislabeling it as local changes.",
+  "notes": "配置同步拉取不再校验「本机 app / 仓库契约」是否一致：0.4.09 及以前版本不一致时 apply.ps1 直接 Die，pull 必须加 -AllowVersionDrift 才能强铺。0.4.10 起版本差异只写一条提示、拉取照常进行（等价于默认放行）；@deepseek-ai/dsh-experimental-* 实验性 bundle 仍按门控剔除，避免把别的客户端构建的 bundle 铺到本机导致启动期 entry loading 崩溃。sync.ps1 status、面板徽标与指标条、index.js advice、README 文案同步去掉「版本不一致=待处理/告警」的误导，本机/契约仅作信息条展示。",
+  "notesEn": "Pull no longer checks whether the local app version matches the repo contract. Up to 0.4.09, a mismatch made apply.ps1 Die and pull required -AllowVersionDrift to force through. Since 0.4.10, a version difference only prints a notice and pull proceeds as usual (effectively always allowed); @deepseek-ai/dsh-experimental-* bundles are still gated/dropped so bundles built for another client do not break entry loading. sync.ps1 status, the panel badge and metric strip, index.js advice and READMEs all drop the misleading \"version mismatch = action needed / warning\" framing — local/contract is now informational only.",
   "minClient": "0.2.2-rc.2"
 }

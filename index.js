@@ -1051,10 +1051,12 @@ async function inspect(config) {
       `Cannot read the client version (${appRoot ? `${appRoot}\\resources\\app\\package.json or resources\\app.asar` : 'AppRoot not found'})`,
     ))
   }
+  // 0.4.10 起：本机/契约版本不同只是提示信息，不再当作「要处理的问题」——拉取不再因版本不一致被阻断。
+  // version 字段仍带 local/contract/match，仅供面板左上角的「本机 / 契约」信息条展示，不构成待办。
   if (localVersion && contractVersion && !versionMatch) {
     advice.push(t(
-      `两端客户端版本不同：本机 ${localVersion}，仓库契约 ${contractVersion}。先升级较旧那台，或 pull 时加 -AllowVersionDrift`,
-      `The two clients differ: this machine ${localVersion}, repo contract ${contractVersion}. Upgrade the older one, or pass -AllowVersionDrift when pulling.`,
+      `本机与仓库客户端版本不同（本机 ${localVersion}，契约 ${contractVersion}）：0.4.10 起不影响拉取，配置照常同步（实验性 bundle 会剔除）`,
+      `Local and repo client versions differ (local ${localVersion}, contract ${contractVersion}): since 0.4.10 this no longer blocks pull — configs sync as usual (experimental bundles are dropped).`,
     ))
   }
   if (unresolved.length) {
@@ -2909,8 +2911,8 @@ function writeScope(dshHome, scope) {
 }
 
 // 必需组：不许取消勾选 —— 因为不勾就会报错，而不是"少同步一点"。
-// profile 里的 package.json / cordis.patch.yml 是 apply 的前置条件（仓库里缺它们 apply.ps1 直接 Die），
-// host-contract.json 是两端版本一致性校验（丢了它版本不一致也照铺，客户端可能起不来）。
+// profile 里的 package.json / cordis.patch.yml 是 apply 的前置条件（仓库里缺它们 apply.ps1 直接 Die）。
+// host-contract.json 自 0.4.10 起只用于「本机/契约」信息条展示，版本不同不再阻断拉取。
 const SCOPE_REQUIRED_GROUPS = ['profile']
 function scopeGroupRequired(id) { return SCOPE_REQUIRED_GROUPS.includes(id) }
 

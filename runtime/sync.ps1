@@ -8,7 +8,7 @@ DSH 配置同步 —— 一条命令入口（把原来的「capture + git add + 
 
   pwsh -File sync.ps1 push -AppRoot "D:\DSH"                  # 客户端不在默认目录时必须显式传（两个子脚本都会收到）
   pwsh -File sync.ps1 push -Message "加了 xx 插件"            # 自定义提交信息（默认自动生成带机器名和时间）
-  pwsh -File sync.ps1 pull -AllowVersionDrift                 # 两端客户端版本不同时，只同步配置（剔除实验性 bundle）
+  pwsh -File sync.ps1 pull -AllowVersionDrift                 # 兼容旧开关：0.4.10 起版本不一致本就默认放行（仍剔除实验性 bundle）
   pwsh -File sync.ps1 push -WorkspaceOnly                     # 只推工作区/会话
   pwsh -File sync.ps1 pull -SkipInstall                       # 只铺配置，不跑 pnpm install
   pwsh -File sync.ps1 push -DeepVerify                        # 文件比较强制全量算哈希（默认大小+mtime 快筛）
@@ -16,7 +16,7 @@ DSH 配置同步 —— 一条命令入口（把原来的「capture + git add + 
 
 设计要点
   - push 先跑 capture.ps1（本机 → 仓库），再 git add -A / commit / push，任何一步失败就停，不会带着半截状态继续。
-  - pull 先 fetch 再 merge --ff-only（等价于 pull --ff-only，但只付一次网络往返；有本地改动或冲突会直接失败，不去猜怎么合并），再跑 apply.ps1（含版本契约校验）。
+  - pull 先 fetch 再 merge --ff-only（等价于 pull --ff-only，但只付一次网络往返；有本地改动或冲突会直接失败，不去猜怎么合并），再跑 apply.ps1（0.4.10 起版本契约只提示、不阻断拉取，实验性 bundle 仍按门控剔除）。
   - 不动选项语义：所有开关原样透传给 capture.ps1 / apply.ps1，两个脚本仍可单独调用。
 #>
 param(
@@ -470,7 +470,7 @@ if ($Action -eq 'status') {
   }
   if ($app -and $contract) {
     if ($app -eq $contract) { Ok "版本一致：app = $app" }
-    else { Warn "版本不一致：本机 app = $app，仓库契约 = $contract（pull 会被拒绝，除非加 -AllowVersionDrift）" }
+    else { Warn "版本不一致（仅提示，不阻断拉取）：本机 app = $app，仓库契约 = $contract —— 0.4.10 起照常同步" }
   } else {
     Warn ("版本信息不全：本机 app = {0}，仓库契约 = {1}" -f $app, $contract)
   }

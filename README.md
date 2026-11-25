@@ -41,7 +41,7 @@ DSH 插件：左侧栏多一行「配置同步」，点开是整页体检面板�
 
 | 项 | 要求 | 不满足时的表现 |
 |---|---|---|
-| 客户端版本 | 两台机器**同版本**（`profile\host-contract.json` 会校验） | 拉取日志 `版本不一致`，加 `-AllowVersionDrift` 才能强铺 |
+| 客户端版本 | 0.4.10 起**无需同版本**：版本不同只提示、不阻断拉取（实验性 bundle 仍会剔除） | 面板/日志提示 `版本不一致`，配置照常同步 |
 | 目标机器 `.dsh` | 至少启动过一次客户端，存在 `profiles\<profile>` | `[X] 目标 profile 不存在（本机还没装过 DSH？）` → 拉取直接退出 |
 | Node / Electron 执行器 | 客户端自带（`<AppRoot>\node.exe` 或 `DeepSeek Harness.exe`） | `本机没有可用的内置运行时`，会话 cwd 无法改写，**会话列表会是空的** |
 | 仓库骨架 | 由源机器首次推送自动写入 | 仓库里只有 `settings\`、没有 `apply.ps1` → 目标机器跑不起来，必须重新初始化推送 |
@@ -624,7 +624,7 @@ DSH 的会话标题会演进：先产生 fallback 临时标题（首条消息截
 - 勾选记在 `~\.dsh\config-sync-scope.json`，跟本机走、不进仓库；只留与默认不同的项，删掉就恢复全勾。
 - 跳过**两侧都生效**：`capture.ps1` 不抓、`apply.ps1` 不还原；`-PruneSkills` 也不会把"勾掉的本机技能"当多出来的项删掉。
 - 另有开关「取消勾选时顺手删掉云端副本」，**默认关**；打开后取消勾选会真的删仓库里的对应目录（删除不可恢复）。
-- **`本机 profile` 是必需内容**：仓库里没有 `profile\package.json` 或 `cordis.patch.yml` 时拉取会 `[X] 仓库内容不完整` 退出；`profile\host-contract.json` 还是两台机器的版本一致性校验。
+- **`本机 profile` 是必需内容**：仓库里没有 `profile\package.json` 或 `cordis.patch.yml` 时拉取会 `[X] 仓库内容不完整` 退出；`profile\host-contract.json` 自 0.4.10 起只用于「本机/契约」信息条展示，版本不同不再阻断拉取。
 
 ## 插件数据与额外路径（0.3.51）
 

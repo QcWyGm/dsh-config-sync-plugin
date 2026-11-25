@@ -257,15 +257,7 @@ window.__ModuleLoader__.load({
           ? { kind: 'init', text: M('本机与云端都还没有内容：待「初始化推送」', 'Local repo and cloud are both empty — Initialize push') }
           : { kind: 'pull', text: M('本机仓库还没有内容：待从云端「拉取」', 'Local repo has no content yet — pull it from the cloud') }
       }
-      if (version.local && version.contract && !version.match) {
-        return {
-          kind: 'warn',
-          text: M(
-            `版本不一致（本机 ${version.local} ≠ 契约 ${version.contract}）`,
-            `Version mismatch (local ${version.local} ≠ contract ${version.contract})`,
-          ),
-        }
-      }
+      // 0.4.10 起：本机/契约版本不一致不再算告警——拉取不再因版本不一致被阻断，只保留左上角信息条展示。
       if (repo.behind === null) return { kind: 'idle', text: M('读不到本机 git 状态（git 不可用或没 upstream）', 'Cannot read local git state (git missing or no upstream)') }
       if (repo.dirty > 0) return { kind: 'warn', text: M(`本机有 ${repo.dirty} 处未提交改动，建议推送`, `${repo.dirty} uncommitted change(s) — consider pushing`) }
       if (repo.ahead > 0) return { kind: 'warn', text: M(`本机有 ${repo.ahead} 个提交还没推送`, `${repo.ahead} local commit(s) not pushed yet`) }
@@ -2638,9 +2630,9 @@ window.__ModuleLoader__.load({
       )
       const versionText = !data ? '…'
         : `${data.version.local || '?'} / ${data.version.contract || '?'}`
+      // 0.4.10 起：版本不一致不再标红/标黄（拉取已不因版本差异阻断），信息条仅作展示。
       const metrics = h('div', { style: S.strip },
-        metric(M('本机 / 契约', 'App / contract'), versionText,
-          data && data.version.local && data.version.contract && !data.version.match ? 'warn' : 'ok'),
+        metric(M('本机 / 契约', 'App / contract'), versionText, 'ok'),
         metric('bundle',
           !data ? '…' : (data.bundles.unresolved.length
             ? M(`缺 ${data.bundles.unresolved.length} / ${data.bundles.total}`, `${data.bundles.unresolved.length} missing / ${data.bundles.total}`)

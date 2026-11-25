@@ -2041,5 +2041,25 @@ console.log('== 0.4.09：本地提交导致分叉，冲突检测展示处理方�
   check('client.js 冲突卡展示分叉处理方式',
     cliSrc.includes('state.divergence ? h(') && cliSrc.includes('本地有提交导致分支分叉'), 'client.js 分叉展示')
 }
+console.log('')
+console.log('== 0.4.10：拉取不再因本机/契约版本不一致而阻断 ==')
+{
+  const appSrc = readFileSync(join(pluginRuntime, 'apply.ps1'), 'utf8')
+  const syncSrc = readFileSync(join(pluginRootSelf, 'runtime', 'sync.ps1'), 'utf8')
+  const idxSrc = readFileSync(join(pluginRootSelf, 'index.js'), 'utf8')
+  const cliSrc = readFileSync(join(pluginRootSelf, 'client.js'), 'utf8')
+  check('apply.ps1 版本不一致不再 Die 阻断拉取',
+    !/两端客户端不是同一版，未改动任何文件/.test(appSrc)
+    && appSrc.includes('0.4.10 起不再阻断拉取'), 'apply.ps1 版本不阻断')
+  check('apply.ps1 版本不一致仍保留实验性 bundle 门控',
+    appSrc.includes('实验性 bundle（@deepseek-ai/dsh-experimental-*') && appSrc.includes('$dropped += $b'), 'apply.ps1 bundle 门控保留')
+  check('sync.ps1 status 把版本不一致标为仅提示不阻断',
+    syncSrc.includes('仅提示，不阻断拉取') && syncSrc.includes('0.4.10 起照常同步'), 'sync.ps1 status 提示')
+  check('index.js 版本差异 advice 不再要求 -AllowVersionDrift',
+    idxSrc.includes('0.4.10 起不影响拉取') && !/或 pull 时加 -AllowVersionDrift/.test(idxSrc), 'index.js advice 文案')
+  check('client.js 摘要与指标条不再因版本不一致标告警',
+    !/版本不一致（本机 \$\{version\.local\}/.test(cliSrc)
+    && cliSrc.includes("metric(M('本机 / 契约', 'App / contract'), versionText, 'ok')"), 'client.js 去告警')
+}
 process.exit(failures === 0 ? 0 : 1)
 
