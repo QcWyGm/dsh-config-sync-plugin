@@ -248,7 +248,10 @@ function Get-AppRootLeaf([string]$appRoot) {
 function Get-AppRootPattern([string]$appRoot) {
   $leaf = Get-AppRootLeaf $appRoot
   # 匹配 [盘符]:[\...\]<末级目录名>，含 JSON 双反斜杠写法；不匹配 <名字>-xxx 这类更长的目录
-  return ('(?i)(?<![A-Za-z0-9_])[A-Z]:[\\/]+(?:[^\s"''`,;()\[\]]*[\\/]+)?' + [regex]::Escape($leaf) + '(?![\w-])(?:[\\/]+)?')
+  # 关键修正：排除反斜杠边界，避免吞掉 JSON 里的 \"
+  # (?<![A-Za-z0-9_\]) 排除前置反斜杠；(?![\w-\]) 排除后置反斜杠
+  # [^\s"',;()\[\]\\] 排除路径字符类里的反斜杠
+  return ('(?i)(?<![A-Za-z0-9_\\])[A-Z]:[\\/]+(?:[^\s"''`,;()\[\]\\]*[\\/]+)?' + [regex]::Escape($leaf) + '(?![\w-\\])(?:[\\/]+)?')
 }
 
 function Get-AppRootFwd([string]$appRoot) {
