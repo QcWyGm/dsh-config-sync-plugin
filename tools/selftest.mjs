@@ -1954,5 +1954,15 @@ console.log('== 0.3.98：默认工作区会话同步（稳定名 --default-works
   check('apply 默认工作区会话 id 并入本机默认工作区登记（sessionIds）',
     /\$localTable\[\$dwId\]\['sessionIds'\]/.test(app) && /\$defaultSids/.test(app), 'apply.ps1 sessionIds 合并')
 }
+console.log('')
+console.log('== 0.4.02：npm tarball 版本按 semver 规范化（0.4.01 → 0.4.1）==')
+{
+  const idxSrc = readFileSync(join(pluginRootSelf, 'index.js'), 'utf8')
+  check('npmTgzUrls 对版本号做 semver 规范化（数字段去前导零）',
+    /const semver = raw\.replace\(\/\^\\\(\\d\+\\\)/.test(idxSrc)
+    || /\$\{Number\(a\)\}\.\$\{Number\(b\)\}\.\$\{Number\(c\)\}/.test(idxSrc), 'index.js semver 规范化')
+  check('npmTgzUrls 保留预发布/构建后缀清洗',
+    idxSrc.includes("semver.replace(/[^0-9A-Za-z.+\\-]/g, '')"), 'index.js 版本清洗')
+}
 process.exit(failures === 0 ? 0 : 1)
 

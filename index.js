@@ -2251,7 +2251,12 @@ function compareVersion(a, b) {
  * 清单里的权威 sha256 照常校验，换源不放宽校验。
  */
 function npmTgzUrls(version) {
-  const v = String(version || '').replace(/[^0-9A-Za-z.+\-]/g, '')
+  // npm 按 semver 规范化版本号：0.4.01 → 0.4.1（数字段去前导零）。
+  // 版本号本身在 version.json / GitHub release / market 里保留用户指定的 0.4.01，
+  // 但拼 npm tarball 文件名必须用规范化后的版本，否则兜底下载 404。
+  const raw = String(version || '').trim()
+  const semver = raw.replace(/^(\d+)\.(\d+)\.(\d+)/, (_m, a, b, c) => `${Number(a)}.${Number(b)}.${Number(c)}`)
+  const v = semver.replace(/[^0-9A-Za-z.+\-]/g, '')
   if (!v) return []
   const f = `dsh-config-sync-plugin-${v}.tgz`
   return [

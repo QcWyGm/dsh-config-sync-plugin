@@ -1,10 +1,10 @@
 {
-  "version": "0.4.01",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.01/dsh-config-sync-plugin-0.4.01.tgz",
-  "tgzBytes":441696,
-  "sha256":"b409c80b70ec886184e8a26f15ebd393d1a07c50bb82a4b03ec66e3d96582eb3",
+  "version": "0.4.02",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.02/dsh-config-sync-plugin-0.4.02.tgz",
+  "tgzBytes":442615,
+  "sha256":"4c955abc284f1b5bd62c92b637583e2a1bb4821bdcd84187055d82ea913b9aa5",
   "releasedAt": "2026-11-25",
-  "notes": "两项改动：①自动同步仅在主动关闭 DSH 窗口（×）时触发——scheduleAutoStart 只做 drift 状态更新，handleSettings 只排队 watcher（shouldCloseDsh: false）不自动退出，只有 triggerAutoSyncOnClose（× 关闭/页面卸载）走 shouldCloseDsh: true 真正关闭 DSH；②项目级技能纳入同步——工作区 .dsh/skills/ 下的项目技能之前因 .dsh 整目录被忽略而永远不同步，现在 Test-WorkspaceIgnored 给 .dsh/skills/ 开定向例外，其余 .dsh 内容仍跳过。保留 0.3.93-0.3.101 全部修复。",
-  "notesEn": "Two changes: ①Auto sync only triggers when user actively closes the DSH window (× close) — scheduleAutoStart only checks drift and updates status, handleSettings only queues watcher (shouldCloseDsh: false) without auto-close, only triggerAutoSyncOnClose (× close / pagehide) uses shouldCloseDsh: true to actually close DSH; ②Project-level skills now sync — skills under a workspace's .dsh/skills/ were never synced because .dsh was entirely ignored; Test-WorkspaceIgnored now makes a targeted exception for .dsh/skills/, other .dsh content stays skipped. Keeps all 0.3.93-0.3.101 fixes.",
+  "notes": "修复 npm 兜底下载的版本规范化：npm 按 semver 把 0.4.01 规范化成 0.4.1，tarball 文件名是 -0.4.1.tgz，之前拼 -0.4.01.tgz 会 404。npmTgzUrls 现在对数字段去前导零（0.4.01→0.4.1）再拼 URL，GitHub release 与 version.json 仍保留用户指定的版本号。保留 0.4.01 及 0.3.93-0.3.101 全部修复。",
+  "notesEn": "Fix npm fallback version normalization: npm normalizes 0.4.01 to 0.4.1 per semver, so the tarball is -0.4.1.tgz; building -0.4.01.tgz 404s. npmTgzUrls now strips leading zeros from numeric segments (0.4.01→0.4.1) before building the URL; GitHub release and version.json keep the user-specified version. Keeps 0.4.01 and all 0.3.93-0.3.101 fixes.",
   "minClient": "0.2.2-rc.2"
 }

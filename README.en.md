@@ -257,6 +257,10 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### npm fallback version normalization fix (0.4.02)
+
+npm normalizes `0.4.01` to `0.4.1` per semver, so the tarball is `dsh-config-sync-plugin-0.4.1.tgz`. Before 0.4.02 the fallback URL was built as `-0.4.01.tgz`, which 404s on npm. `npmTgzUrls` now strips leading zeros from numeric segments (`0.4.01`→`0.4.1`) before building the URL; GitHub release and version.json keep the user-specified version (same artifact, identical sha256). Selftest assertion added.
+
 ### Project-level skills now sync + auto sync only on active × close (0.4.01)
 
 **Project-level skills**: skills placed under a workspace's `.dsh\skills\` were never synced — the workspace ignore list skips the whole `.dsh` directory. `Test-WorkspaceIgnored` now makes a targeted exception for `.dsh\skills\`, so project skills sync with workspace files; other `.dsh` content (session cache/tokens/config) stays skipped.
@@ -777,6 +781,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-25 | 0.4.02 | Fix npm fallback version normalization: npm semver turns 0.4.01 into 0.4.1; strip leading zeros when building tarball URL, otherwise 404 |
 | 2026-11-25 | 0.4.01 | Auto sync only on active × close: scheduleAutoStart updates drift status only, handleSettings queues watcher without close, only × close/pagehide (shouldCloseDsh:true) actually closes DSH after queuing |
 | 2026-11-25 | 0.3.99 | Toggle auto-pull/push now triggers immediate sync check (core logic checkAndQueueAutoSync reused by scheduleAutoStart/triggerAutoSyncOnClose/handleSettings; toggle change queues immediately, manual-trigger mode skips confirm) |
 | 2026-11-25 | 0.3.98 | Default workspace conversations now sync (stable name --default-workspace--; apply re-encodes directory/cwd/projcache from local defaultWorkspaceId and merges sessionIds), files stay local |
