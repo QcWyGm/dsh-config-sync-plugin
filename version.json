@@ -1,10 +1,10 @@
 {
-  "version": "0.4.05",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.05/dsh-config-sync-plugin-0.4.05.tgz",
-  "tgzBytes":445420,
-  "sha256":"ca4bb5dda623c295c203bcc4db5fb7d2c1c07a10b0ad0fd8a3f0a5b7fdf3743c",
+  "version": "0.4.06",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.06/dsh-config-sync-plugin-0.4.06.tgz",
+  "tgzBytes": 451076,
+  "sha256": "d372f08412c600e6ce6e8a8581da4a4310f4564b4b26c753d47de1337f38a2d4",
   "releasedAt": "2026-11-25",
-  "notes": "修复点 × 有待推送却没推送：端到端诊断确认后端判据与路由完全正常（手动 POST auto-exit 立即 queued:true 并推送），根因是前端卸载信标 pagehide→sendBeacon 在 DSH 真正退出时请求送不到后端。改为不依赖前端：后端 2 分钟定时复查检测到待拉取/推送即预排 watcher 进 wait 态（shouldCloseDsh:false 不关 DSH），用户点 × 关闭后预排的 watcher 自动 run 执行；前端信标保留作双保险。定时复查无人值守不弹确认框，watcher 超时后允许重排，开关每次复查重读。保留 0.4.04 及以前全部修复。",
-  "notesEn": "Fix '× close with pending push but nothing happens': end-to-end diagnosis confirmed the backend check and route are fine (manual POST auto-exit instantly returns queued:true and pushes); root cause is the frontend unload beacon pagehide→sendBeacon never reaching the backend when DSH actually exits. Now independent of the frontend: the backend 2-min periodic check queues a watcher into wait state as soon as pending pull/push is detected (shouldCloseDsh:false, no auto-close); when the user clicks × to close, the pre-queued watcher auto-runs. Frontend beacon kept as a backup. Periodic check is unattended (no confirm dialog), allows re-queue after watcher timeout, and re-reads switches each cycle. Keeps 0.4.04 and all earlier fixes.",
+  "notes": "点 × 立即执行待推送/待拉取：0.4.05 依赖前端信标 + 2 分钟预排，用户在两次复查之间点 × 仍会漏。0.4.06 把「用户在关窗」这个判断搬到后端：新增常驻窗口监视（250ms 采样 DeepSeek Harness 的可见窗口数，最小化不算），曾经有窗口且连续 4 拍（约 1 秒）归零即认定点 ×，当场判一次 drift、排好 watcher，确有活要干才强杀残留进程族让 watcher 立刻开工（无待同步不误杀）；前端信标与 2 分钟预排保留为双保险。post-exit wait 同步收紧：可见窗口归零 3 拍即开工，不再等 60 秒批次年龄；过期 watcher 让位判据收紧到「等待超 5 分钟且从未见过窗口」，避免把刚排好、正要开工的 watcher 误让掉。前提不变：需勾选「启动时自动拉取」/「退出时自动推送」。",
+  "notesEn": "Click × now executes pending push/pull immediately. 0.4.05 still relied on the frontend beacon plus a 2-minute pre-queue, so clicking × between two checks could still miss. 0.4.06 moves the 'user is closing' decision to the backend: a resident window watcher samples the visible DeepSeek Harness window count every 250ms (minimized counts as visible); once a window has been seen and the count stays 0 for 4 consecutive samples (~1s), it is treated as the × click — drift is checked, the watcher is queued, and the residual process family is force-killed only when there is real work to do (no needless kill when nothing is pending). The frontend beacon and the periodic pre-queue remain as backups. post-exit wait also tightened: 3 zero-window samples is enough to start work instead of waiting for the 60s batch age, and the stale-watcher yield rule now requires >5 minutes of waiting with no window ever seen, so a freshly queued watcher is no longer yielded away. Prerequisite unchanged: the corresponding auto pull/push switch must be on.",
   "minClient": "0.2.2-rc.2"
 }

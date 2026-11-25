@@ -1981,5 +1981,43 @@ console.log('== 0.4.05：定时复查预排 watcher，不依赖前端信标 ==')
   check('已排队守卫检查 watcher 存活（超时后可重排）',
     /autoState\.pending && isProcessAlive\(autoState\.pending\.watcherPid\)/.test(idxSrc), 'index.js 存活守卫')
 }
+console.log('')
+console.log('== 0.4.06：点 × 由后端窗口监视触发（不依赖前端信标），watcher 窗口一消失就开工 ==')
+{
+  const idxSrc = readFileSync(join(pluginRootSelf, 'index.js'), 'utf8')
+  const postSrc = existsSync(join(pluginRuntime, 'post-exit.ps1'))
+    ? readFileSync(join(pluginRuntime, 'post-exit.ps1'), 'utf8') : ''
+  check('新增 startWindowWatcher：常驻采样可见窗口数',
+    /function startWindowWatcher\(config\)/.test(idxSrc)
+    && idxSrc.includes("Get-Process -Name 'DeepSeek Harness'")
+    && idxSrc.includes('MainWindowHandle -ne 0'), 'index.js 窗口监视')
+  check('窗口监视 apply 时启动、卸载时回收',
+    /startWindowWatcher\(config\)/.test(idxSrc)
+    && /autoState\.windowTimer = null/.test(idxSrc), 'index.js 生命周期')
+  check('关闭判据：曾经有窗口 + 连续 4 拍归零（最小化不算）',
+    /autoState\.windowHadVisible = true/.test(idxSrc)
+    && /autoState\.windowZeroTicks < 4/.test(idxSrc), 'index.js 归零判据')
+  check('采样进程自带退出条件（DSH 全消失 / 宿主消失 / 时限）',
+    idxSrc.includes('if ($all.Count -eq 0) { break }')
+    && idxSrc.includes('(Get-Date) -gt $deadline'), 'index.js 采样进程退出条件')
+  check('采样进程不得 detached（实测 detached 时 stdout 全丢，心跳为 0 行）',
+    /detached: true/.test(idxSrc.split('function startWindowWatcher')[1]?.split('async function onWindowClosedSync')[0] || '')
+      ? false : true, 'index.js 采样进程非 detached')
+  check('父进程判死必须先见过父进程（首拍查不到不能自杀）',
+    idxSrc.includes('$parentSeen = $false') && idxSrc.includes('elseif ($parentSeen) { break }'), 'index.js 父进程判死')
+  check('命中后先判一次同步再强杀，且只在有待同步时才强杀',
+    /async function onWindowClosedSync/.test(idxSrc)
+    && /result\.queued \|\| result\.reused/.test(idxSrc)
+    && /没有待拉取\/待推送/.test(idxSrc), 'index.js 按需强杀')
+  check('没有可见窗口出现过（CLI/无窗口启动）永不触发',
+    /if \(!autoState\.windowHadVisible\) return/.test(idxSrc), 'index.js 无窗口不触发')
+  check('post-exit wait：可见窗口归零即收拾进程族，不再等 60 秒批次年龄',
+    postSrc.includes('$hadVisible = $false')
+    && postSrc.includes('$visZeroTicks -ge 3')
+    && postSrc.includes('可见窗口已全部关闭'), 'post-exit.ps1 wait 判据')
+  check('过期 watcher 让位收紧：必须等待超过 5 分钟且没见过窗口',
+    postSrc.includes('$waited -gt 300')
+    && postSrc.includes('-and -not $hadVisible'), 'post-exit.ps1 让位收紧')
+}
 process.exit(failures === 0 ? 0 : 1)
 

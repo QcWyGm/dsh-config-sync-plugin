@@ -47,6 +47,7 @@ param(
 # 用户从开机到关窗口这段时间会一直挂着一个"等 DSH 退出"的黑窗，什么也干不了还挡着视线。
 if ($Phase -eq 'wait') {
   $deadline = (Get-Date).AddMinutes($MaxWaitMinutes)
+  $waitStart = Get-Date
   $noWindowTicks = 0
   $waitLog = Join-Path $DshHome 'logs\auto-sync-wait.log'
   function WaitLog([string]$text) {
@@ -57,6 +58,12 @@ if ($Phase -eq 'wait') {
     } catch { }
   }
   WaitLog ("等待开始（pid {0}）" -f $WatchPid)
+  # 0.4.06：不再只靠「进程数归零」判退出。实测点 × 后进程族常残留（无窗口但活着），
+  # 旧逻辑要等 60 秒批次年龄 + 连续 16 秒才动手，用户以为没生效。
+  # 这里改成和进程年龄无关的判据：曾经出现过可见窗口、之后连续 3 次（约 6 秒）一个都没有
+  # → 认定用户在关窗，直接收掉残留进程族开工。最小化不影响（最小化仍有窗口句柄）。
+  $hadVisible = $false
+  $visZeroTicks = 0
   while ($true) {
     # 按**进程名**判断，而不是只看传进来的 pid：插件传的 pid 未必是「那个活着的客户端」——
     # 实测出现过 watchPid 对应的进程早就不在了、而客户端明明还在跑，等待态于是当场开工，
@@ -65,48 +72,70 @@ if ($Phase -eq 'wait') {
     $byPid = if ($WatchPid -gt 0) { Get-Process -Id $WatchPid -ErrorAction SilentlyContinue } else { $null }
     if ($byName.Count -eq 0 -and -not $byPid) { WaitLog 'DSH 已完全退出'; break }
 
-    # 僵死 watcher 自清：WatchPid（排队那次的 DSH）已经退出，但进程名还有实例 ——
-    # 若这些实例全部是本 watcher 启动之后才起来的，说明我们等的那次 DSH 早就退出并重启过了，
-    # 本 watcher 属于上一代残留。继续等只会被「进程名还有新实例」挡住、死等 30 分钟还霸占锁，
-    # 让新排的 watcher（带当前 DSH pid）无法复用/接管。这里主动退出并清锁，把位置让出来。
-    # 正常场景不会误伤：排队时 DSH 已在运行，其进程启动时间一定早于本 watcher。
-    if ($WatchPid -gt 0 -and -not $byPid -and $byName.Count -gt 0) {
-      $myStart = (Get-Process -Id $PID -ErrorAction SilentlyContinue).StartTime
-      if ($myStart) {
-        # 0.4.04：原判据「所有 DSH 都比 watcher 新」会被**无窗口的孤儿进程**破坏——
-        # 实测 WatchPid 被强杀后留下一个比 watcher 还早启动的子进程（父已死、hwnd=0），
-        # 它既不是用户在用的实例、也不会消失，把 newerAll.Count -eq byName.Count 永远卡死，
-        # watcher 死等 30 分钟还霸占 auto-sync.lock。真正代表「排队那次 DSH 还在用」的，
-        # 是比 watcher 早启动**且有前台窗口**的实例；无窗口残留/新实例都不该挡住让位。
-        $visibleOld = @($byName | Where-Object { $_.MainWindowHandle -ne 0 -and $_.StartTime -and $_.StartTime -lt $myStart })
-        if ($visibleOld.Count -eq 0) {
-          WaitLog ('WatchPid {0} 已退出，无遗留前台窗口（现存为残留进程或新实例），判定为过期 watcher，退出让位' -f $WatchPid)
-          try {
-            $lockFile = Join-Path $DshHome 'auto-sync.lock'
-            if (Test-Path -LiteralPath $lockFile) {
-              $lock = Get-Content -LiteralPath $lockFile -Raw -Encoding utf8 | ConvertFrom-Json
-              if ($lock -and $lock.pid -eq $PID) { Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue }
-            }
-          } catch { }
-          exit 3
+    # 0.4.06：可见窗口判据（优先于年龄判据）
+    #   A. 本 watcher 亲眼见过窗口 → 连续 3 拍（约 6 秒）归零就动手：这是「点 × 」最常见的路径。
+    #   B. 没见过窗口（排队后窗口先关掉了）→ 退回「无可见窗口 + 进程已活过 25 秒」累计 8 拍（约 16 秒）。
+    #      加 25 秒下限是为了不把「客户端刚启动、窗口还没建出来」误判成关闭。
+    $visNow = @($byName | Where-Object { $_.MainWindowHandle -ne 0 })
+    if ($visNow.Count -gt 0) {
+      $hadVisible = $true
+      $visZeroTicks = 0
+      $noWindowTicks = 0
+    } elseif ($byName.Count -gt 0) {
+      if ($hadVisible) {
+        $visZeroTicks++
+        if ($visZeroTicks -ge 3) {
+          WaitLog '可见窗口已全部关闭（进程仍残留），强制结束残留进程族后开工'
+          try { Stop-Process -Name 'DeepSeek Harness' -Force -ErrorAction SilentlyContinue } catch { }
+          Start-Sleep -Seconds 3
+          if (@(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue).Count -eq 0) { WaitLog '已全部结束'; break }
+          $visZeroTicks = 0
+        }
+      } else {
+        $newest = $byName | Sort-Object StartTime -Descending | Select-Object -First 1
+        $ageSec = if ($newest -and $newest.StartTime) { ((Get-Date) - $newest.StartTime).TotalSeconds } else { 0 }
+        if ($ageSec -gt 25) { $noWindowTicks++ } else { $noWindowTicks = 0 }
+        if ($noWindowTicks -ge 8) {
+          WaitLog '前台窗口已关闭且进程不退，强制结束残留进程'
+          try { Stop-Process -Name 'DeepSeek Harness' -Force -ErrorAction SilentlyContinue } catch { }
+          Start-Sleep -Seconds 3
+          if (@(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue).Count -eq 0) { WaitLog '已全部结束'; break }
+          $noWindowTicks = 0
         }
       }
     }
 
-    # 用户点了窗口右上角的关闭、前台窗口全没了，但进程赖着不走（实测 7 个进程全部 hwnd=0 还活着）。
-    # 不能只看「曾经出现过窗口」——等待进程可能是在窗口关掉之后才起来的（实测就这么漏判了），
-    # 改用批次年龄：这批客户端进程已经活了 60 秒以上、却一个可见窗口都没有 → 认定用户已关闭。
-    $visible = @($byName | Where-Object { $_.MainWindowHandle -ne 0 })
-    $newest = $byName | Sort-Object StartTime -Descending | Select-Object -First 1
-    $ageSec = if ($newest -and $newest.StartTime) { ((Get-Date) - $newest.StartTime).TotalSeconds } else { 0 }
-    if ($visible.Count -eq 0 -and $ageSec -gt 60) { $noWindowTicks++ } else { $noWindowTicks = 0 }
-    if ($noWindowTicks -ge 8) {
-      WaitLog '前台窗口已关闭且进程不退，强制结束残留进程'
-      try { Stop-Process -Name 'DeepSeek Harness' -Force -ErrorAction SilentlyContinue } catch { }
-      Start-Sleep -Seconds 3
-      if (@(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue).Count -eq 0) { WaitLog '已全部结束'; break }
-      $noWindowTicks = 0
+    # 僵死 watcher 自清：只处理「排队那次的 DSH 早就退出并重启过」这一种情况。
+    # 0.4.06 加了可见窗口判据之后这里要收紧：点 × 后 WatchPid 立即消失、进程族还在，
+    # 原来的「没有比 watcher 更早的可见窗口就 exit 3」会把**正准备开工的本次 watcher**
+    # 直接让掉（窗口本来就刚关掉）。所以只有在「现存实例全是新实例」且「等待已超过 5 分钟」时
+    # 才认定自己是上一代残留，否则一律继续等，由上面的窗口判据接手开工。
+    if ($WatchPid -gt 0 -and -not $byPid -and $byName.Count -gt 0 -and -not $hadVisible) {
+      $waited = ((Get-Date) - $waitStart).TotalSeconds
+      if ($waited -gt 300) {
+        $myStart = (Get-Process -Id $PID -ErrorAction SilentlyContinue).StartTime
+        if ($myStart) {
+          # 0.4.04：原判据「所有 DSH 都比 watcher 新」会被**无窗口的孤儿进程**破坏——
+          # 实测 WatchPid 被强杀后留下一个比 watcher 还早启动的子进程（父已死、hwnd=0），
+          # 它既不是用户在用的实例、也不会消失，把 newerAll.Count -eq byName.Count 永远卡死，
+          # watcher 死等 30 分钟还霸占 auto-sync.lock。真正代表「排队那次 DSH 还在用」的，
+          # 是比 watcher 早启动**且有前台窗口**的实例；无窗口残留/新实例都不该挡住让位。
+          $visibleOld = @($byName | Where-Object { $_.MainWindowHandle -ne 0 -and $_.StartTime -and $_.StartTime -lt $myStart })
+          if ($visibleOld.Count -eq 0) {
+            WaitLog ('WatchPid {0} 已退出超过 5 分钟，无遗留前台窗口（现存为残留进程或新实例），判定为过期 watcher，退出让位' -f $WatchPid)
+            try {
+              $lockFile = Join-Path $DshHome 'auto-sync.lock'
+              if (Test-Path -LiteralPath $lockFile) {
+                $lock = Get-Content -LiteralPath $lockFile -Raw -Encoding utf8 | ConvertFrom-Json
+                if ($lock -and $lock.pid -eq $PID) { Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue }
+              }
+            } catch { }
+            exit 3
+          }
+        }
+      }
     }
+
     if ((Get-Date) -gt $deadline) { WaitLog '等待超时，放弃本次同步'; exit 2 }
     Start-Sleep -Seconds 2
   }

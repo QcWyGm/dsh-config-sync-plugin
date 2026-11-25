@@ -1473,6 +1473,13 @@ const autoState = {
   watcherStartedAt: 0,
   timer: null,
   interval: null,       // 每 2 分钟的复查（会话/资料是运行中产生的，只判一次会全漏）
+  // 0.4.06：窗口监视。前端信标（pagehide→sendBeacon）在 DSH 真退出时送不到后端，
+  // 所以「点 × 」这个动作改由后端自己看：DSH 曾经有可见窗口、之后一个可见窗口都不剩，
+  // 就是用户在关。这条链路不经过浏览器，DSH 怎么退出都拦不住它。
+  windowTimer: null,
+  windowHadVisible: false,
+  windowZeroTicks: 0,
+  windowFired: false,
 }
 
 function autoScript(dshHome, repo) {
@@ -1801,6 +1808,142 @@ function forceCloseDshDetached(config) {
 function isProcessAlive(pid) {
   if (!pid) return false
   try { process.kill(pid, 0); return true } catch { return false }
+}
+
+/**
+ * 0.4.06：后端窗口监视 —— 不依赖前端信标判断「用户点了 ×」。
+ *
+ * 为什么必须放在后端：0.3.96～0.4.05 一直靠 `pagehide → navigator.sendBeacon('/config-sync/auto-exit')`
+ * 通知后端，实测 DSH 真正退出时这个请求根本到不了（launch.log 里点 × 时段没有任何信标到达）。
+ * 0.4.05 加了「2 分钟定时预排」绕开它，但预排有窗口期：用户在两次复查之间点 ×，
+ * 那一刻既没有预排 watcher、信标又送不到 → 退出后什么都不执行。
+ *
+ * 这里用一条和浏览器完全无关的链路补上这个窗口期：起一个常驻 PowerShell 子进程，
+ * 每 250ms 报一次「DeepSeek Harness 里可见窗口数 / 进程总数」。判据是
+ * 「曾经有过可见窗口、现在连续 4 拍（约 1 秒）一个都没有」= 用户在关窗口（最小化不算，最小化仍有窗口句柄）。
+ * 命中后当场判一次 drift、排好 watcher，再强杀残留进程族让 watcher 立刻开工。
+ *
+ * 零副作用保证：窗口从没出现过（CLI / 无窗口启动）时 windowHadVisible 一直是 false，永不触发。
+ * 采样进程带三个退出条件（DSH 全消失 / 宿主消失 / 30 分钟上限），宿主退出后不会留下空转进程。
+ */
+function startWindowWatcher(config) {
+  if (autoState.windowTimer) return
+  const dshHome = config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh')
+  const exe = powershellExe()
+  // 一个进程内死循环采样：比每次 spawn 一个 powershell 便宜得多（后者每秒一次会明显吃 CPU）
+  // 采样进程要能活过宿主消失的那一拍：detached + 自带退出条件（宿主没了 / DSH 没了 / 硬上限）。
+  // 否则宿主一退就变成永远转圈的空转进程。
+  const script = [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    `$parent = ${Number(process.pid) || 0}`,
+    '$parentSeen = $false',
+    '$deadline = (Get-Date).AddMinutes(30)',
+    'while ($true) {',
+    "  $all = @(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue)",
+    '  $vis = @($all | Where-Object { $_.MainWindowHandle -ne 0 }).Count',
+    '  try { Write-Output ("{0} {1}" -f $vis, $all.Count) } catch { break }',
+    '  if ($all.Count -eq 0) { break }',
+    // 父进程存活检查必须「先见过再判死」：首拍查不到（权限/竞态）不能当成已退出，
+    // 否则采样进程刚起来就自杀，窗口归零那一拍永远发不出去。
+    '  if ($parent -gt 0) {',
+    '    if (Get-Process -Id $parent -ErrorAction SilentlyContinue) { $parentSeen = $true }',
+    '    elseif ($parentSeen) { break }',
+    '  }',
+    '  if ((Get-Date) -gt $deadline) { break }',
+    '  Start-Sleep -Milliseconds 250',
+    '}',
+  ].join('\n')
+  let child
+  try {
+    // 必须走 -EncodedCommand：把多行脚本塞进 -Command 在非交互窗口下实测零输出（心跳全丢）。
+    const encoded = Buffer.from(script, 'utf16le').toString('base64')
+    // 绝不能 detached：实测 detached=true 时这条 stdout 管道**一行都收不到**（0 行 vs 12 行）。
+    // 也不需要 detached —— 「窗口归零」那一拍必然发生在宿主还活着的时候（点 × 关的是窗口，不是进程），
+    // 整个判定与排队都在宿主动作，采样进程不需要活过宿主。
+    child = spawn(exe, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
+      { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  } catch (error) {
+    logLaunch(dshHome, `窗口监视启动失败：${(error && error.message) || error}`)
+    return
+  }
+  const handle = { stop: () => { try { child.kill() } catch { } } }
+  autoState.windowTimer = handle
+  try { child.unref?.() } catch { }
+
+  let buffer = ''
+  const onSample = (line) => {
+    const m = /^(\d+)\s+(\d+)$/.exec(line)
+    if (!m) return
+    const visible = Number(m[1])
+    const total = Number(m[2])
+    if (visible > 0) {
+      autoState.windowHadVisible = true
+      autoState.windowZeroTicks = 0
+      // 窗口又回来了（用户重新打开 / 重载）：允许下一次关闭再触发一次
+      autoState.windowFired = false
+      return
+    }
+    // 进程都不在了：DSH 已经自己退干净，watcher 会按进程名判定开工，这里不用管
+    if (total === 0) return
+    if (!autoState.windowHadVisible) return
+    autoState.windowZeroTicks++
+    // 连续 4 拍（250ms × 4 ≈ 1 秒）都没有可见窗口才算数。
+    // 取 1 秒而不是更长：Electron 关窗到进程族全退只有 1-3 秒，判太慢插件自己就没机会排队了。
+    // 安全性由「曾经见过窗口」保证——页面重载不销毁 BrowserWindow、最小化仍有窗口句柄，
+    // 真正让句柄归零的只有关闭窗口。
+    if (autoState.windowZeroTicks < 4) return
+    if (autoState.windowFired) return
+    autoState.windowFired = true
+    logLaunch(dshHome, `窗口监视：可见窗口已全部关闭（残留进程 ${total} 个），开始判一次自动同步`)
+    onWindowClosedSync(config, dshHome)
+  }
+  child.stdout.on('data', (chunk) => {
+    buffer += String(chunk)
+    let idx = buffer.indexOf('\n')
+    while (idx >= 0) {
+      const line = buffer.slice(0, idx).trim()
+      buffer = buffer.slice(idx + 1)
+      onSample(line)
+      idx = buffer.indexOf('\n')
+    }
+    if (buffer.length > 4096) buffer = ''
+  })
+  child.stderr.on('data', () => { })
+  child.on('error', (error) => {
+    logLaunch(dshHome, `窗口监视进程异常：${(error && error.message) || error}`)
+    try { autoState.windowTimer = null } catch { }
+  })
+  child.on('exit', () => {
+    // 被我们自己 kill（插件卸载）时不要把状态清掉，否则重装会重复挂
+    if (autoState.windowTimer === handle) autoState.windowTimer = null
+  })
+}
+
+/**
+ * 「窗口已关闭」那一刻的动作：先判一次是否需要拉取/推送，需要就排队，再强杀残留进程族。
+ *
+ * forceClose 只在**确实有活要干**时才做（排上了 / 复用了已排队的 watcher）。没有待同步内容时
+ * 让 DSH 自己走正常退出流程，绝不无端强杀 —— 强杀会跳过客户端自己的落盘。
+ */
+async function onWindowClosedSync(config, dshHome) {
+  try {
+    const pendingAlive = autoState.pending && isProcessAlive(autoState.pending.watcherPid)
+    if (pendingAlive) {
+      logLaunch(dshHome, `窗口监视：复用已排队的 ${autoState.pending.mode}，强杀残留进程让它开工`)
+      forceCloseDshDetached(config)
+      return
+    }
+    const result = await triggerAutoSyncOnClose(config, { fast: true })
+    const mode = result && result.mode ? result.mode : ''
+    if (result && (result.queued || result.reused)) {
+      logLaunch(dshHome, `窗口监视：已排队 ${mode}（${result.queued ? '新排' : '复用'}），强杀残留进程让它开工`)
+      forceCloseDshDetached(config)
+      return
+    }
+    logLaunch(dshHome, `窗口监视：没有待拉取/待推送（${(result && result.reason) || 'no_action_needed'}），不强制退出`)
+  } catch (error) {
+    logLaunch(dshHome, `窗口监视：处理失败 ${(error && error.message) || error}`)
+  }
 }
 const STATE_NAME = 'config-sync-state.json'
 
@@ -4832,6 +4975,15 @@ export function apply(ctx, config) {
     })
     // 开关打开才排一次启动检查（默认关 = 什么都不做）
     scheduleAutoStart(config)
+    // 0.4.06：后端窗口监视。点 × 这个动作由后端自己看（可见窗口归零），不依赖前端信标。
+    startWindowWatcher(config)
+    try {
+      ctx.effect(() => () => {
+        const w = autoState.windowTimer
+        try { w && w.stop && w.stop() } catch { }
+        autoState.windowTimer = null
+      })
+    } catch { }
     // 云端探测预热：插件一装上就去探一次（不阻塞、不 await）。这样面板打开时缓存多半已经热了，
     // status 不用再为首屏那 2.5 秒的 ls-remote 埋单。
     typeof setTimeout === 'function' ? setTimeout(() => { try { warmRemoteProbe(config) } catch { } }, 300) : null
