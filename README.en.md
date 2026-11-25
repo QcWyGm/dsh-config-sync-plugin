@@ -257,6 +257,20 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Project-level skills now sync + auto sync only on active × close (0.4.01)
+
+**Project-level skills**: skills placed under a workspace's `.dsh\skills\` were never synced — the workspace ignore list skips the whole `.dsh` directory. `Test-WorkspaceIgnored` now makes a targeted exception for `.dsh\skills\`, so project skills sync with workspace files; other `.dsh` content (session cache/tokens/config) stays skipped.
+
+**Auto sync timing**: in 0.3.99, toggling the switches meant instant drift check → queue watcher + close DSH. That caused DSH to auto-close and restart whenever a switch was flipped or the 2-min cycle hit, which was disruptive.
+
+Now `checkAndQueueAutoSync` takes a `shouldCloseDsh` parameter, and the three callers are cleanly separated:
+
+1. **scheduleAutoStart** (8s after startup + every 2 min): **only checks drift and updates status**, no auto-close. The panel shows "cloud ahead / local dirty" instantly.
+2. **handleSettings** (toggle save): **queues watcher only (shouldCloseDsh: false), no auto-close**. Toggle changes take effect immediately but won't interrupt your running DSH.
+3. **triggerAutoSyncOnClose / handleAutoExit** (× close / pagehide): **shouldCloseDsh: true**, queues watcher then actually closes DSH; the watcher runs the pull/push after DSH exits.
+
+Now the behavior is: toggle the switch → drift is checked and watcher is queued (panel status updates instantly), but DSH **stays running**; only when you **actively click × to close the window** does the queued pull/push actually execute. 5 selftest assertions added. Keeps all 0.3.93–0.3.99 fixes.
+
 ### Toggle auto-pull/push now triggers immediate sync check (0.3.99)
 
 Previously toggling "Pull on startup" or "Push on exit" meant waiting for the next 2-minute cycle (or DSH exit) before any sync decision. The core logic is now factored into `checkAndQueueAutoSync`, reused in three places:
@@ -763,6 +777,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-25 | 0.4.01 | Auto sync only on active × close: scheduleAutoStart updates drift status only, handleSettings queues watcher without close, only × close/pagehide (shouldCloseDsh:true) actually closes DSH after queuing |
 | 2026-11-25 | 0.3.99 | Toggle auto-pull/push now triggers immediate sync check (core logic checkAndQueueAutoSync reused by scheduleAutoStart/triggerAutoSyncOnClose/handleSettings; toggle change queues immediately, manual-trigger mode skips confirm) |
 | 2026-11-25 | 0.3.98 | Default workspace conversations now sync (stable name --default-workspace--; apply re-encodes directory/cwd/projcache from local defaultWorkspaceId and merges sessionIds), files stay local |
 | 2026-11-25 | 0.3.97 | Clicking × with pending pull/push actively force-kills the DSH process family from a detached process (detached taskkill /F); the watcher runs immediately instead of waiting for orphaned processes |

@@ -216,8 +216,15 @@ $wsMaxFileBytes = 100MB
 function Test-WorkspaceIgnored([string]$rel) {
   # 只按「目录段」判忽略，最后一段是文件名不算目录（否则一个恰好叫 logs 的文件会被误跳过）
   $parts = @($rel.Replace($BS,'/') -split '/' | Where-Object { $_ -ne '' })
+  # 0.4.01：项目级技能在工作区的 .dsh\skills\ 下，而 .dsh 整个被 wsSkipDirs 排除，
+  # 导致项目技能永远不同步。这里给「.dsh/skills/」开定向例外：只有恰好位于
+  # .dsh\skills\ 之下的内容放行，其余 .dsh 内容（会话缓存/token/配置）仍照旧跳过。
+  $isProjectSkill = ($parts.Count -ge 3 -and $parts[0] -eq '.dsh' -and $parts[1] -eq 'skills')
   $dirParts = if ($parts.Count -gt 1) { @($parts[0..($parts.Count-2)]) } else { @() }
-  foreach ($seg in $dirParts) { if ($wsSkipDirs -contains $seg) { return $true } }
+  foreach ($seg in $dirParts) {
+    if ($isProjectSkill -and ($seg -eq '.dsh' -or $seg -eq 'skills')) { continue }
+    if ($wsSkipDirs -contains $seg) { return $true }
+  }
   $leaf = if ($parts.Count -gt 0) { $parts[$parts.Count-1] } else { '' }
   if ($wsSkipFiles -contains $leaf) { return $true }
   if ($wsSkipExt -contains ([IO.Path]::GetExtension($leaf).ToLower())) { return $true }

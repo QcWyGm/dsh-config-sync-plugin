@@ -277,6 +277,20 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 项目级技能纳入同步 + 自动同步仅在主动关闭 DSH 窗口（×）时触发（0.4.01）
+
+**项目级技能同步**：技能放在工作区的 `.dsh\skills\` 下时，之前从来不会被同步——工作区同步的忽略清单把整个 `.dsh` 目录跳过了。现在 `Test-WorkspaceIgnored` 给 `.dsh\skills\` 开定向例外，项目级技能能随工作区资料一起推送/拉取；其余 `.dsh` 内容（会话缓存/token/配置）仍照旧跳过。
+
+**自动同步时机**：以前勾选「启动时自动拉取」或「退出时自动推送」后，立即判 drift → 满足条件即排队 watcher 并关闭 DSH（0.3.99）。这会导致用户只是在面板改开关、或 2 分钟周期到达时，DSH 就自动关闭重启，体验很差。
+
+现在把核心判断 `checkAndQueueAutoSync` 拆出 `shouldCloseDsh` 参数，三路明确分工：
+
+1. **scheduleAutoStart**（启动 8 秒后 + 每 2 分钟复查）：**只做 drift 检查与状态更新，不自动关闭 DSH**，供面板显示「云端领先/本地未提交」等状态
+2. **handleSettings**（开关保存后）：**只排队 watcher（shouldCloseDsh: false），不自动退出**，开关变更即时生效但不干扰正在用的 DSH
+3. **triggerAutoSyncOnClose / handleAutoExit**（点 × 关闭 / 页面卸载）：**shouldCloseDsh: true**，排队后真正关闭 DSH，watcher 在 DSH 退出后立即执行
+
+现在的行为：勾选开关 → 即时判 drift 并排队（面板状态立即刷新），但 DSH **不会** 自动关闭；只有用户**主动点 × 关闭窗口**时，才会按已排队的模式真正执行拉取/推送。selftest 加断言防回归。保留 0.3.93-0.3.99 全部修复。
+
 ### 勾选自动同步开关即时触发判断（0.3.99）
 
 以前勾选「启动时自动拉取」或「退出时自动推送」后，必须等到下一个 2 分钟周期（或退出 DSH）才会判断是否需要同步。这次把核心判断逻辑抽离为 `checkAndQueueAutoSync`，在三处复用：
@@ -745,6 +759,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 | 日期 | 版本 | 要点 |
 |---|---|---|
+| 2026-11-25 | 0.4.01 | 自动同步仅在主动关闭 DSH 窗口（×）时触发：scheduleAutoStart 只做 drift 状态更新，handleSettings 只排队不退出，只有 × 关闭/页面卸载走 shouldCloseDsh: true 真正关闭 DSH |
 | 2026-11-25 | 0.3.99 | 勾选自动同步开关即时触发判断（核心逻辑抽离为 checkAndQueueAutoSync，scheduleAutoStart/triggerAutoSyncOnClose/handleSettings 三路复用，开关变更即时排队，手动模式跳过确认框） |
 | 2026-11-25 | 0.3.98 | 默认工作区会话纳入同步（稳定名 --default-workspace--，apply 按本机 defaultWorkspaceId 重编码目录/cwd/projcache 并合并 sessionIds），资料仍各机独立 |
 | 2026-11-25 | 0.3.97 | 点 × 检测到待拉取/待推送后，从独立进程主动强制退出 DSH 进程族（detached taskkill /F），watcher 立刻执行，不再干等残留进程 |

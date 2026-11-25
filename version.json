@@ -1,10 +1,10 @@
 {
-  "version": "0.3.99",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.3.99/dsh-config-sync-plugin-0.3.99.tgz",
-  "tgzBytes":440129,
-  "sha256":"9b0e9cbce0298cb1b519130056786a315fc3fb2b7794181c0aed5aaa7839bb43",
+  "version": "0.4.01",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.01/dsh-config-sync-plugin-0.4.01.tgz",
+  "tgzBytes":441696,
+  "sha256":"b409c80b70ec886184e8a26f15ebd393d1a07c50bb82a4b03ec66e3d96582eb3",
   "releasedAt": "2026-11-25",
-  "notes": "勾选自动拉取/推送后立即判断并同步（不等 2 分钟周期）：新增 checkAndQueueAutoSync 核心函数，scheduleAutoStart、triggerAutoSyncOnClose、handleSettings 三路复用。开关变更时若已开启且仓库就位，立即判 drift→满足条件即排队 watcher 并关闭 DSH；手动触发模式跳过确认框。保留 0.3.93-0.3.98 全部修复。",
-  "notesEn": "Auto pull/push now triggers immediately on toggle (no 2-min wait): new checkAndQueueAutoSync core function reused by scheduleAutoStart, triggerAutoSyncOnClose, and handleSettings. When autoPull/autoPush is turned on and repo is ready, it instantly checks drift and queues watcher + closes DSH if criteria met; manual-trigger mode skips confirm dialog. Keeps all 0.3.93-0.3.98 fixes.",
+  "notes": "两项改动：①自动同步仅在主动关闭 DSH 窗口（×）时触发——scheduleAutoStart 只做 drift 状态更新，handleSettings 只排队 watcher（shouldCloseDsh: false）不自动退出，只有 triggerAutoSyncOnClose（× 关闭/页面卸载）走 shouldCloseDsh: true 真正关闭 DSH；②项目级技能纳入同步——工作区 .dsh/skills/ 下的项目技能之前因 .dsh 整目录被忽略而永远不同步，现在 Test-WorkspaceIgnored 给 .dsh/skills/ 开定向例外，其余 .dsh 内容仍跳过。保留 0.3.93-0.3.101 全部修复。",
+  "notesEn": "Two changes: ①Auto sync only triggers when user actively closes the DSH window (× close) — scheduleAutoStart only checks drift and updates status, handleSettings only queues watcher (shouldCloseDsh: false) without auto-close, only triggerAutoSyncOnClose (× close / pagehide) uses shouldCloseDsh: true to actually close DSH; ②Project-level skills now sync — skills under a workspace's .dsh/skills/ were never synced because .dsh was entirely ignored; Test-WorkspaceIgnored now makes a targeted exception for .dsh/skills/, other .dsh content stays skipped. Keeps all 0.3.93-0.3.101 fixes.",
   "minClient": "0.2.2-rc.2"
 }

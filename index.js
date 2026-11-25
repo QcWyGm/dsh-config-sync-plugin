@@ -2189,12 +2189,13 @@ async function handleSettings(req, res, config) {
       },
     }
     // autoPull/autoPush 开关变更时，若已开启则立即判断并排队（不等 2 分钟周期）
+    // shouldCloseDsh: false —— 用户只是在面板改开关，不想自动退出 DSH
     if (changed.autoPull || changed.autoPush) {
       const repoPathResolved = repo || resolveRepo(config?.repoPath, dshHome).repo || ''
       const appRoot = resolveAppRoot(config?.appRoot) || ''
       const newSettings = readSettings(dshHome)
       if (repoPathResolved && isDir(join(repoPathResolved, '.git'))) {
-        await checkAndQueueAutoSync(dshHome, config, newSettings, repoPathResolved, appRoot, { isManualTrigger: true })
+        await checkAndQueueAutoSync(dshHome, config, newSettings, repoPathResolved, appRoot, { isManualTrigger: true, shouldCloseDsh: false })
       }
     }
     sendJson(res, 200, response)
@@ -3498,10 +3499,10 @@ async function handleAuto(req, res, config) {
   }
 }
 
-/** 核心判断逻辑：给定配置与仓库，判断是否需要自动拉取/推送，需要则排队 watcher 并关闭 DSH。
+/** 核心判断逻辑：给定配置与仓库，判断是否需要自动拉取/推送，需要则排队 watcher（可选关闭 DSH）。
  * 供 scheduleAutoStart（定时）、triggerAutoSyncOnClose（关闭钩子）、handleSettings（开关即时触发）复用。 */
 async function checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, options = {}) {
-  const { skipConfirm = false, isManualTrigger = false } = options
+  const { skipConfirm = false, isManualTrigger = false, shouldCloseDsh = true } = options
   // 已经排队等退出了就别重复拉起 watcher
   if (autoState.pending) return { queued: false, reason: 'already_pending' }
   if (!repo || !isDir(join(repo, '.git'))) {
@@ -3532,7 +3533,7 @@ async function checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, o
     const started = await spawnWatcher({ mode: 'pull', repo, appRoot, dshHome, restart: settings.autoRestart })
     if (started.ok) {
       autoState.pending = { mode: 'pull', at: Date.now(), restart: settings.autoRestart, watcherPid: started.pid, closeRequested: true }
-      closeDsh()
+      if (shouldCloseDsh) closeDsh()
       return { queued: true, mode: 'pull', reason: `behind ${drift.behind}` }
     } else {
       return { queued: false, reason: 'spawn_failed', error: started.error }
@@ -3557,7 +3558,7 @@ async function checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, o
       const started = await spawnWatcher({ mode: 'push', repo, appRoot, dshHome, restart })
       if (started.ok) {
         autoState.pending = { mode: 'push', at: Date.now(), reason: reasonZh, reasonZh, reasonEn, restart, watcherPid: started.pid, closeRequested: false }
-        closeDsh()
+        if (shouldCloseDsh) closeDsh()
         return { queued: true, mode: 'push', reason: reasonZh }
       } else {
         return { queued: false, reason: 'spawn_failed', error: started.error }
@@ -3567,7 +3568,8 @@ async function checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, o
   return { queued: false, reason: 'no_action_needed' }
 }
 
-/** 启动后的自动检查：延迟跑，避免和客户端自身的启动流程抢 IO；失败只记进状态，不打扰用户。 */
+/** 启动后的自动检查：延迟跑，避免和客户端自身的启动流程抢 IO；失败只记进状态，不打扰用户。
+ * 只做 drift 检查与状态更新，不自动关闭 DSH；关闭只在用户显式动作（× 关闭、手动按钮）触发。 */
 function scheduleAutoStart(config) {
   const dshHome = config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh')
   const settings = readSettings(dshHome)
@@ -3577,19 +3579,29 @@ function scheduleAutoStart(config) {
     try {
       if (autoState.pending) return
       const repo = resolveRepo(config?.repoPath, dshHome).repo || ''
-      const appRoot = resolveAppRoot(config?.appRoot) || ''
-      await checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot)
+      if (!repo || !isDir(join(repo, '.git'))) {
+        autoState.lastCheckError = (repo && repoPhase(repo) === 'empty') ? '' : '仓库未就位'
+        autoState.lastCheckAt = Date.now()
+        return
+      }
+      autoState.checking = true
+      const drift = await checkDrift(repo)
+      autoState.checking = false
+      autoState.lastCheckAt = Date.now()
+      if (!drift) {
+        autoState.lastCheckError = '读不到远端'
+        return
+      }
+      autoState.drift = drift
+      // 仅更新状态供面板显示；不自动关闭 DSH，关闭由用户显式动作触发
     } catch (error) {
       autoState.checking = false
       autoState.lastCheckAt = Date.now()
       autoState.lastCheckError = String((error && error.message) || error)
     }
   }
-  // 首检别拖太久：用户可能开起来看一眼就关窗口，20 秒会让他这次关闭什么都没推。
   autoState.timer = setTimeout(run, 8 * 1000)
   try { autoState.timer.unref?.() } catch { }
-  // 之后每 2 分钟复查一次：会话/资料是运行中才产生的，只在启动判一次会把它们全漏掉。
-  // 命中就排一次队，watcher 已在等进程退出，退出即执行；已排队时 run 会直接返回。
   try {
     autoState.interval = setInterval(run, 2 * 60 * 1000)
     autoState.interval.unref?.()
