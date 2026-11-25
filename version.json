@@ -1,10 +1,10 @@
 {
-  "version": "0.4.02",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.02/dsh-config-sync-plugin-0.4.02.tgz",
-  "tgzBytes":442615,
-  "sha256":"4c955abc284f1b5bd62c92b637583e2a1bb4821bdcd84187055d82ea913b9aa5",
+  "version": "0.4.03",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.03/dsh-config-sync-plugin-0.4.03.tgz",
+  "tgzBytes":442688,
+  "sha256":"d2ce036cff6f8e00b05ae35b534add7dd53149f2da5e8e5ba0b2b4223f76ea4d",
   "releasedAt": "2026-11-25",
-  "notes": "修复 npm 兜底下载的版本规范化：npm 按 semver 把 0.4.01 规范化成 0.4.1，tarball 文件名是 -0.4.1.tgz，之前拼 -0.4.01.tgz 会 404。npmTgzUrls 现在对数字段去前导零（0.4.01→0.4.1）再拼 URL，GitHub release 与 version.json 仍保留用户指定的版本号。保留 0.4.01 及 0.3.93-0.3.101 全部修复。",
-  "notesEn": "Fix npm fallback version normalization: npm normalizes 0.4.01 to 0.4.1 per semver, so the tarball is -0.4.1.tgz; building -0.4.01.tgz 404s. npmTgzUrls now strips leading zeros from numeric segments (0.4.01→0.4.1) before building the URL; GitHub release and version.json keep the user-specified version. Keeps 0.4.01 and all 0.3.93-0.3.101 fixes.",
+  "notes": "重新打包发布：代码与 0.4.02 一致，仅版本与发布元数据更新到 0.4.03。保留 0.4.02 的 npm semver 规范化修复（0.4.01→0.4.1），0.4.01 的项目级技能同步、自动同步仅在点 × 关闭时触发，以及 0.3.93-0.3.101 全部修复。",
+  "notesEn": "Repackaged release: code is identical to 0.4.02; only version and release metadata are updated to 0.4.03. Keeps 0.4.02 npm semver normalization fix (0.4.01→0.4.1), 0.4.01 project-level skills sync and auto-sync only on active × close, plus all 0.3.93-0.3.101 fixes.",
   "minClient": "0.2.2-rc.2"
 }

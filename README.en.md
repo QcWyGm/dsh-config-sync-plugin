@@ -781,6 +781,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-25 | 0.4.03 | Repackaged release: code identical to 0.4.02; only version and release metadata updated to 0.4.03 |
 | 2026-11-25 | 0.4.02 | Fix npm fallback version normalization: npm semver turns 0.4.01 into 0.4.1; strip leading zeros when building tarball URL, otherwise 404 |
 | 2026-11-25 | 0.4.01 | Auto sync only on active × close: scheduleAutoStart updates drift status only, handleSettings queues watcher without close, only × close/pagehide (shouldCloseDsh:true) actually closes DSH after queuing |
 | 2026-11-25 | 0.3.99 | Toggle auto-pull/push now triggers immediate sync check (core logic checkAndQueueAutoSync reused by scheduleAutoStart/triggerAutoSyncOnClose/handleSettings; toggle change queues immediately, manual-trigger mode skips confirm) |

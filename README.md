@@ -763,6 +763,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 | 日期 | 版本 | 要点 |
 |---|---|---|
+| 2026-11-25 | 0.4.03 | 重新打包发布：代码与 0.4.02 一致，仅版本与发布元数据更新到 0.4.03 |
 | 2026-11-25 | 0.4.02 | 修复 npm 兜底下载的版本规范化：0.4.01 被 npm semver 规范化成 0.4.1，拼 tarball 时去前导零，否则 404 |
 | 2026-11-25 | 0.4.01 | 自动同步仅在主动关闭 DSH 窗口（×）时触发：scheduleAutoStart 只做 drift 状态更新，handleSettings 只排队不退出，只有 × 关闭/页面卸载走 shouldCloseDsh: true 真正关闭 DSH |
 | 2026-11-25 | 0.3.99 | 勾选自动同步开关即时触发判断（核心逻辑抽离为 checkAndQueueAutoSync，scheduleAutoStart/triggerAutoSyncOnClose/handleSettings 三路复用，开关变更即时排队，手动模式跳过确认框） |
