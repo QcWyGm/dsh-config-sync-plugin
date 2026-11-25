@@ -233,6 +233,10 @@ function Sync-WorkspaceCapture {
   foreach ($s in $skipWs) { $slotSet[$s.Slot] = $true }
   $nAdd = 0; $nDel = 0
   foreach ($e in $entries) {
+    # 默认工作区只同步「会话」、不同步「资料」（资料各机独立）：登记条目已在上面的
+    # workspace-registry.json 里保留（会话归属/sessionIds 合并需要它），这里跳过资料文件
+    # 拷贝，也不给它建槽；镜像删除会把仓库里历史遗留的默认工作区资料槽清掉。
+    if ($e.Id -eq $gDefault) { continue }
     $slotSet[$e.Slot] = $true
     $srcRoot = $e.LocalPath
     $dstRoot = Join-Path $wsDir $e.Slot
@@ -333,6 +337,10 @@ function Get-RepoSessionDirName([string]$kind, [string]$id, [string]$localDir) {
     if ($safe) { return ('--ws-{0}--' -f $safe) }
   }
   if ($kind -eq 'im') { return '--im--' }
+  # 默认工作区用跨机稳定名：它的 ID 与路径编码各机都不同，无法像普通工作区那样按 ID/路径对齐。
+  # 每台机器有且只有一个默认工作区（title=default-workspace、路径=<WorkspaceHome>\default-workspace），
+  # apply 侧按「本机」workspace.json 的 defaultWorkspaceId 找到本机路径再重编码即可。
+  if ($kind -eq 'default') { return '--default-workspace--' }
   return $localDir
 }
 
@@ -344,6 +352,8 @@ function Sync-ConversationCapture {
   $wsEncToId = @{}
   $wsPathById = @{}
   $regSrc = Join-Path $DshHome 'storages/workspace.json'
+  $defaultWsEnc = ''       # 本机默认工作区的会话目录编码名（路径由 defaultWorkspaceId 反查）
+  $defaultWsPath = ''
   if (Test-Path -LiteralPath $regSrc) {
     $reg = Get-Content -LiteralPath $regSrc -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($reg.tables.workspaces) {
@@ -351,6 +361,12 @@ function Sync-ConversationCapture {
         $wsEncToId[(Get-SessionDirName ([string]$prop.Value.path))] = $prop.Name
         $wsPathById[[string]$prop.Name] = [string]$prop.Value.path
       }
+    }
+    # 默认工作区：ID 从 global 读，路径从登记表反查（各机的 ID 不同，但「本机这一个」是确定的）
+    $defId = if ($reg.global) { [string]$reg.global.defaultWorkspaceId } else { '' }
+    if ($defId -and $wsPathById.ContainsKey($defId)) {
+      $defaultWsPath = $wsPathById[$defId]
+      $defaultWsEnc = Get-SessionDirName $defaultWsPath
     }
   }
   $imEnc = Get-SessionDirName (Join-Path $DshHome 'im')
@@ -372,8 +388,12 @@ function Sync-ConversationCapture {
   if (Test-Path -LiteralPath $sessSrc) {
     foreach ($d in @(Get-ChildItem -LiteralPath $sessSrc -Directory -Force | Sort-Object Name)) {
       if (Test-DefaultWorkspaceDir $d.Name) {
-        # 默认工作区不同步（见 dsh-sync-common.ps1 的说明）：不记映射，也不入仓库。
-        Ok ('默认工作区不参与同步，跳过：{0}' -f $d.Name)
+        # 默认工作区的会话要同步（资料不同步）。ID/路径编码各机不同，用跨机稳定名 --default-workspace--
+        # 入库；apply 侧按本机 workspace.json 的 defaultWorkspaceId 找到本机路径再重编码。
+        $repoDir = Get-RepoSessionDirName 'default' '' $d.Name
+        $dirRemap[$d.Name] = $repoDir
+        $idxEntries += [ordered]@{ dir = $repoDir; special = 'default' }
+        Ok ('默认工作区会话纳入同步（稳定名 {0}）：{1}' -f $repoDir, $d.Name)
         continue
       }
       if ($wsEncToId.ContainsKey($d.Name) -and -not (Test-SyncItemEnabled $Scope 'conversations' ([string]$wsEncToId[$d.Name]))) {
@@ -407,6 +427,9 @@ function Sync-ConversationCapture {
   # 不归一的话，仓库里这条 cwd 永远是「最后推上来的那台机器」的路径，两台机器互推时每次都改这批文件。
   $imRepoDirName = Get-RepoSessionDirName 'im' '' ''
   $cwdToken[$imRepoDirName] = ($DshHomeToken + '/im')
+  # 默认工作区的 cwd 归一到 {{WORKSPACE_HOME}}/default-workspace（路径各机不同，必须占位符）
+  $defaultRepoDirName = Get-RepoSessionDirName 'default' '' ''
+  if ($defaultWsPath) { $cwdToken[$defaultRepoDirName] = (ConvertTo-WorkspaceToken $defaultWsPath) }
   foreach ($e in @($idxEntries)) {
     if (-not $e.workspaceId) { continue }
     $localCwd = $null
@@ -448,8 +471,10 @@ function Sync-ConversationCapture {
       $rel = Get-RelPath $b.Src $f.FullName
       if (-not $rel) { continue }
       $parts = @($rel -split '\\')
-      # 默认工作区的文件不入库（第一段就是那个 -default-workspace-- 目录名）。
-      if (Test-DefaultWorkspaceDir $parts[0]) { continue }
+      # 默认工作区的「会话」现在也要入库（资料仍不同步）：它在 dirRemap 里已映射成稳定名
+      # --default-workspace--，下面会随 Remap 一起改写。只有非 Remap 块仍按原名跳过默认工作区
+      # （那些块按 sessionId/hash 平铺，通常也不会出现这种目录名，纯属兜底）。
+      if ((-not $b.Remap) -and (Test-DefaultWorkspaceDir $parts[0])) { continue }
       # 该工作区的会话被取消勾选：整块不抓（目录名保持本机编码，绝不能原样入库）
       if ($b.Remap -and $skipSessDirs.ContainsKey($parts[0])) { continue }
       if ($b.Remap -and $dirRemap.ContainsKey($parts[0])) { $parts[0] = $dirRemap[$parts[0]] }

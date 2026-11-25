@@ -1904,5 +1904,35 @@ console.log('== 0.3.97：检测到待拉取/待推送就主动强制退出 DSH�
   check('只在 queued 时才强制退出（无待同步不误杀 DSH）',
     /result && result\.queued[\s\S]{0,60}?forceCloseDshDetached/.test(idxSrc), 'index.js queued 守卫')
 }
+console.log('')
+console.log('== 0.3.98：默认工作区会话同步（稳定名 --default-workspace--，资料仍不同步）==')
+{
+  const capPath = join(pluginRuntime, 'capture.ps1')
+  const appPath = join(pluginRuntime, 'apply.ps1')
+  const cap = existsSync(capPath) ? readFileSync(capPath, 'utf8') : ''
+  const app = existsSync(appPath) ? readFileSync(appPath, 'utf8') : ''
+  // capture：默认工作区会话用稳定名入库（不再跳过）
+  check('capture Get-RepoSessionDirName 支持 default → --default-workspace--',
+    /if \(\$kind -eq 'default'\) \{ return '--default-workspace--' \}/.test(cap), 'capture.ps1 default 稳定名')
+  check('capture 默认工作区会话纳入映射（special=default，不再跳过）',
+    /special = 'default'/.test(cap) && /默认工作区会话纳入同步/.test(cap), 'capture.ps1 顶层映射')
+  check('capture 从本机 defaultWorkspaceId 反查默认工作区路径',
+    /defaultWorkspaceId/.test(cap) && /\$defaultWsPath = \$wsPathById\[\$defId\]/.test(cap), 'capture.ps1 默认路径反查')
+  check('capture 默认工作区 cwd 归一到 {{WORKSPACE_HOME}}/default-workspace',
+    /\$cwdToken\[\$defaultRepoDirName\] = \(ConvertTo-WorkspaceToken \$defaultWsPath\)/.test(cap), 'capture.ps1 cwd 归一')
+  check('capture 资料按 defaultWorkspaceId 跳过默认工作区（资料不同步、登记保留）',
+    /if \(\$e\.Id -eq \$gDefault\) \{ continue \}/.test(cap), 'capture.ps1 资料跳过')
+  check('capture 会话镜像不再无条件跳过默认工作区目录',
+    /\(Test-DefaultWorkspaceDir \$parts\[0\]\)/.test(cap) && /-not \$b\.Remap/.test(cap), 'capture.ps1 镜像')
+  // apply：按本机默认工作区路径重编码 + 注册会话到默认工作区
+  check('apply 从本机 workspace.json 读 defaultWorkspaceId 反查默认工作区路径',
+    /\$localDefaultWsPath/.test(app) && /\$lreg\.global\.defaultWorkspaceId/.test(app), 'apply.ps1 本机默认路径')
+  check('apply special=default 分支按本机路径重编码目录与 cwd',
+    /\$e\.special -eq 'default'/.test(app) && /\$newDir = Get-SessionDirName \$localDefaultWsPath/.test(app), 'apply.ps1 重编码')
+  check('apply 2b 兜底与 projcache 都处理 --default-workspace--',
+    /\$d\.Name -eq '--default-workspace--'/.test(app) && /\$wd\.Name -eq '--default-workspace--'/.test(app), 'apply.ps1 兜底+projcache')
+  check('apply 默认工作区会话 id 并入本机默认工作区登记（sessionIds）',
+    /\$localTable\[\$dwId\]\['sessionIds'\]/.test(app) && /\$defaultSids/.test(app), 'apply.ps1 sessionIds 合并')
+}
 process.exit(failures === 0 ? 0 : 1)
 

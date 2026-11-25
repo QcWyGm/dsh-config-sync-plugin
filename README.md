@@ -277,6 +277,14 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 默认工作区会话纳入同步、资料仍各机独立（0.3.98）
+
+以前默认工作区整个跳过同步。原因：它的会话目录名由**本机 WorkspaceHome 绝对路径**编码（`--C-Users-...-default-workspace--`），两台机器路径不同，直接把 A 机的目录铺到 B 机只会留下 DSH 认不出的死目录（表现为默认工作区历史为空）。这次按「只同步会话、不同步资料」拆开处理：
+
+1. **会话走跨机稳定名**：capture 把默认工作区会话目录写成稳定名 `--default-workspace--`（和已有工作区的 `--ws-<id>--`、`--im--` 并列），会话头 cwd 归一到 `{{WORKSPACE_HOME}}/default-workspace`；apply 按**本机** `workspace.json` 的 `global.defaultWorkspaceId` 反查本机默认工作区路径，重编码目录名、改会话头 cwd、对齐 projcache，并把会话 id 并入本机默认工作区登记条目——DSH 才能把这些会话显示在默认工作区下。不依赖 A 机的工作区 ID。
+2. **资料不同步、登记保留**：capture 按 `defaultWorkspaceId` 跳过默认工作区的资料文件拷贝（资料各机独立），但 `workspace-registry.json` 里它的登记条目保留——会话归属与 sessionIds 合并不需要它。apply 侧资料还原也不会把默认工作区资料槽铺回来。
+3. **防回归**：selftest 加 10 条断言（稳定名映射、cwd 归一、本机路径反查、重编码、sessionIds 合并、资料跳过）。普通工作区、im、其余机制与同步内容勾选过滤全部不变。首次拉取前 B 机需先让 DSH 启动一次生成默认工作区登记。
+
 ### 点 × 检测到待同步就主动退出 DSH 并立即执行（0.3.97）
 
 0.3.96 的信标已经能「点 × 判一次并排好 watcher」，但 watcher 进入 `wait` 后是**被动等 DSH 进程全部消失**才开工。实测点 × 后 DSH 常残留 7 个进程（插件就跑在其中的 host 子进程里），单靠正常关闭流程经常关不干净，watcher 只能干等到 30 分钟超时——表现为「排了队但迟迟不动」。这次补上最后一环：
@@ -727,6 +735,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 | 日期 | 版本 | 要点 |
 |---|---|---|
+| 2026-11-25 | 0.3.98 | 默认工作区会话纳入同步（稳定名 --default-workspace--，apply 按本机 defaultWorkspaceId 重编码目录/cwd/projcache 并合并 sessionIds），资料仍各机独立 |
 | 2026-11-25 | 0.3.97 | 点 × 检测到待拉取/待推送后，从独立进程主动强制退出 DSH 进程族（detached taskkill /F），watcher 立刻执行，不再干等残留进程 |
 | 2026-11-24 | 0.3.96 | 页面卸载信标（pagehide→sendBeacon /auto-exit）取代失效的 Electron 关窗钩子，fast 判据（本地 tracking ref、不 fetch）毫秒级排队 watcher，真正修好「点 × 不触发」 |
 | 2026-11-24 | 0.3.95 | 修复 post-exit.ps1 丢 UTF-8 BOM 致 PS5.1 按 GBK 解码、55 处语法错启动即崩：三处执行体补回 BOM，selftest 加全量 ps1 BOM 断言防回归 |

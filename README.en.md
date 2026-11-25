@@ -257,6 +257,14 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Default workspace conversations now sync; its files stay local (0.3.98)
+
+Previously the whole default workspace was skipped. Reason: its session directory name is encoded from the **local WorkspaceHome absolute path** (`--C-Users-...-default-workspace--`); the two machines have different paths, so copying A's directory onto B only leaves a dead directory DSH cannot recognize (shows up as an empty default-workspace history). This version splits "sync conversations, not files":
+
+1. **Conversations use a cross-machine stable name**: capture writes the default-workspace session directory under the stable name `--default-workspace--` (alongside the existing `--ws-<id>--` and `--im--`), and normalizes the session header cwd to `{{WORKSPACE_HOME}}/default-workspace`; apply resolves the local default workspace path from **this machine's** `workspace.json` global.defaultWorkspaceId, re-encodes the directory name, fixes the header cwd, aligns projcache, and merges the session ids into the local default workspace registry entry — so DSH shows these conversations under the default workspace. No dependence on A's workspace ID.
+2. **Files stay local, registration kept**: capture skips default-workspace file copying by `defaultWorkspaceId` (files are per-machine), but keeps its `workspace-registry.json` entry — session ownership and sessionIds merging need it. apply's file restore likewise won't lay the default-workspace files slot back down.
+3. **Regression guards**: 10 selftest assertions (stable-name mapping, cwd normalization, local path resolution, re-encoding, sessionIds merge, files skip). Normal workspaces, im, all other mechanics and scope filters unchanged. On a fresh machine, let DSH start once to create its default-workspace registration before the first pull.
+
 ### Clicking × with pending changes now actively exits DSH and syncs immediately (0.3.97)
 
 In 0.3.96 the beacon could "check once on × and queue the watcher", but the watcher then sat in `wait`, **passively waiting for all DSH processes to disappear** before working. In practice clicking × leaves 7 orphaned processes (the plugin itself runs in one of them, the host child), so the normal close path often fails to clean up and the watcher just idles until its 30-minute timeout — appearing as "queued but nothing happens". This version closes the last gap:
@@ -745,6 +753,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-25 | 0.3.98 | Default workspace conversations now sync (stable name --default-workspace--; apply re-encodes directory/cwd/projcache from local defaultWorkspaceId and merges sessionIds), files stay local |
 | 2026-11-25 | 0.3.97 | Clicking × with pending pull/push actively force-kills the DSH process family from a detached process (detached taskkill /F); the watcher runs immediately instead of waiting for orphaned processes |
 | 2026-11-24 | 0.3.96 | Page-unload beacon (pagehide→sendBeacon /auto-exit) replaces the dead Electron close hook; fast check (local tracking ref, no fetch) queues the watcher in milliseconds, finally fixing "× does not trigger" |
 | 2026-11-24 | 0.3.95 | Fix post-exit.ps1 losing UTF-8 BOM (PS5.1 decoded as GBK, 55 syntax errors, crashed on launch): restored BOM on all three executors, selftest adds full ps1 BOM assertion to prevent regression |

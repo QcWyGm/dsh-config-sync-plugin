@@ -123,9 +123,16 @@ function Sync-WorkspaceApply {
   # DSH 归属权威就是这里的 sessionIds 成员：没登记的会话即便 cwd 改对也不会挂到工作区。
   # 按 conversations\sessions\--ws-<workspaceId>--\<sessionId>\ 反推补齐，与会话还原段同源。
   $sidByWsDir = @{}
+  $defaultSids = @()   # 默认工作区会话（仓库稳定名 --default-workspace--）的会话 id
   $convSessionsDir = Join-Path $RepoRoot 'conversations\sessions'
   if (Test-Path -LiteralPath $convSessionsDir) {
     foreach ($wd in @(Get-ChildItem -LiteralPath $convSessionsDir -Directory -Force)) {
+      if ($wd.Name -eq '--default-workspace--') {
+        foreach ($sd in @(Get-ChildItem -LiteralPath $wd.FullName -Directory -Force)) {
+          $defaultSids += [string]$sd.Name
+        }
+        continue
+      }
       if ($wd.Name -notmatch '^--ws-(?<id>.+)--$') { continue }
       $wid = $Matches['id']
       if (-not $sidByWsDir.ContainsKey($wid)) { $sidByWsDir[$wid] = @() }
@@ -355,6 +362,13 @@ function Sync-WorkspaceApply {
     else { $localGlobal['defaultWorkspaceId'] = '' }
   }
   elseif (-not $localGlobal.Contains('defaultWorkspaceId')) { $localGlobal['defaultWorkspaceId'] = $localDefault }
+  # 默认工作区的会话 id 并入「本机」默认工作区条目：普通工作区靠上面 sidByWsDir 反推补进 sessionIds，
+  # 默认工作区是稳定名 --default-workspace-- 不那条路，这里用仓库会话目录反推出来的 $defaultSids 补。
+  # DSH 归属权威就是 sessionIds，不补的话 cwd 和目录名对了、会话也不会挂到默认工作区下。
+  $dwId = [string]$localGlobal['defaultWorkspaceId']
+  if ($defaultSids.Count -gt 0 -and $dwId -and $localTable.Contains($dwId)) {
+    $localTable[$dwId]['sessionIds'] = @(@($localTable[$dwId]['sessionIds']) + $defaultSids | Where-Object { $_ -ne '' } | Sort-Object -Unique)
+  }
   $localGlobal['initialized'] = $true
   $localGlobal['workspaceIds'] = $ids
   $localGlobal['archivedSessionIds'] = @($gArchAll | Sort-Object -Unique)
@@ -426,6 +440,27 @@ function Sync-ConversationApply {
     }
   }
 
+  # 1b) 本机默认工作区路径：从「本机」workspace.json 的 global.defaultWorkspaceId 反查。
+  #     绝不用仓库 registry 里那台机器的 default ID——各机默认工作区 ID 不同；但「本机这一个」
+  #     由本机登记表唯一确定。默认工作区会话在仓库里是稳定名 --default-workspace--，
+  #     还原时按这里的本机路径重编码目录名 + 改写会话头 cwd，B 机才能认出。
+  $localDefaultWsPath = ''
+  $localWsReg = Join-Path $DshHome 'storages\workspace.json'
+  if (Test-Path -LiteralPath $localWsReg) {
+    try {
+      $lreg = Get-Content -LiteralPath $localWsReg -Raw -Encoding UTF8 | ConvertFrom-Json
+      $ldefId = if ($lreg.global) { [string]$lreg.global.defaultWorkspaceId } else { '' }
+      if ($ldefId -and $lreg.tables -and $lreg.tables.workspaces) {
+        $lp = $lreg.tables.workspaces.PSObject.Properties[$ldefId]
+        if ($lp) { $localDefaultWsPath = [string]$lp.Value.path }
+      }
+    } catch { }
+  }
+  if (-not $localDefaultWsPath -and $WorkspaceHome) {
+    # 兜底：默认工作区路径固定就是 <WorkspaceHome>\default-workspace
+    $localDefaultWsPath = Join-Path $WorkspaceHome 'default-workspace'
+  }
+
   # 2) 目录名重映射：A 机目录名 → B 机目录名；同时记下 B 机这条目录应对应的 cwd
   #    （会话文件 header 里的 cwd 必须与目录名编码一致，否则 DSH 判 corrupt）
   $dirMap = @{}
@@ -450,6 +485,16 @@ function Sync-ConversationApply {
         $newDir = Get-SessionDirName $imLocal
         $dirMap[$oldDir] = $newDir
         $cwdMap[$newDir] = $imLocal
+      } elseif ($e.special -eq 'default') {
+        # 默认工作区：按本机路径重编码目录名，会话头 cwd 也指本机默认工作区
+        if ($localDefaultWsPath) {
+          $newDir = Get-SessionDirName $localDefaultWsPath
+          $dirMap[$oldDir] = $newDir
+          $cwdMap[$newDir] = $localDefaultWsPath
+        } else {
+          $dirMap[$oldDir] = $oldDir
+          Warn ('默认工作区会话 {0} 找不到本机落点，请先在 DSH 里打开一次默认工作区再拉取' -f $oldDir)
+        }
       } else {
         $dirMap[$oldDir] = $oldDir   # passthrough / 对应不到的工作区，原名保留
         Warn ('会话目录 {0} 对应不到本机工作区，目录名与文件头 cwd 都无法重算，DSH 可能把它判为损坏：请在本机重新打开该工作区后再同步' -f $oldDir)
@@ -461,6 +506,15 @@ function Sync-ConversationApply {
   if (Test-Path -LiteralPath $repoSessions) {
     foreach ($d in @(Get-ChildItem -LiteralPath $repoSessions -Directory -Force)) {
       if ($dirMap.ContainsKey($d.Name)) { continue }
+      # 默认工作区稳定名（session-index 缺失时兜底）
+      if ($d.Name -eq '--default-workspace--') {
+        if ($localDefaultWsPath) {
+          $newDir = Get-SessionDirName $localDefaultWsPath
+          $dirMap[$d.Name] = $newDir
+          $cwdMap[$newDir] = $localDefaultWsPath
+        }
+        continue
+      }
       if ($d.Name -match '^--ws-(?<id>.+)--$') {
         $id = $Matches['id']
         $hit = $null
@@ -530,6 +584,12 @@ function Sync-ConversationApply {
           $projMap[[string]$sd.Name] = $imLocal
         }
       }
+      # 默认工作区会话（--default-workspace-- 顶层）的 projcache 指到本机默认工作区
+      if ($wd.Name -eq '--default-workspace--' -and $localDefaultWsPath) {
+        foreach ($sd in @(Get-ChildItem -LiteralPath $wd.FullName -Directory -Force)) {
+          $projMap[[string]$sd.Name] = $localDefaultWsPath
+        }
+      }
     }
   }
   if ($cwdMap.Count -gt 0 -or $projMap.Count -gt 0) {
@@ -568,8 +628,10 @@ function Sync-ConversationApply {
       if ($b.Remap) {
         # 相对路径第一段是 A 机的编码目录名，换成 B 机重编码后的名字
         $parts = @($rel -split '\\')
-        # 默认工作区不同步（见 dsh-sync-common.ps1）：老仓库里可能还留着这条，直接跳过不铺。
-        if (Test-DefaultWorkspaceDir $parts[0]) { continue }
+        # 默认工作区会话现在要同步：稳定的 --default-workspace-- 已在 dirMap 里映射到本机编码名，
+        # 下面会随 Remap 改写。老仓库里可能还留着「路径式」的默认工作区目录名（本机编码、对不上
+        # 任何映射），那种仍跳过不铺——它跨机无法重定位，铺了反而是死目录。
+        if ((Test-DefaultWorkspaceDir $parts[0]) -and -not $dirMap.ContainsKey($parts[0])) { continue }
         # 该工作区的会话被取消勾选：不铺回本机（否则等于把未勾选的内容写回来了）
         if (-not $dirMap.ContainsKey($parts[0]) -and $skipConvDirs.ContainsKey($parts[0])) { continue }
         if ($dirMap.ContainsKey($parts[0])) { $parts[0] = $dirMap[$parts[0]] }
