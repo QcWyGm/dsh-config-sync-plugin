@@ -277,6 +277,12 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 点 × 有待推送却没推送：改后端定时预排 watcher（0.4.05）
+
+端到端诊断（手动 POST `/config-sync/auto-exit`）证明后端判据与路由完全正常——立即返回 `queued:true`、排上 watcher、强制退出 DSH 并完成推送。根因在前端：`pagehide → navigator.sendBeacon('/config-sync/auto-exit')` 在 DSH 真正退出时请求送不到后端（launch.log 里点 × 时段无任何信标到达记录），而 0.3.96 起一直依赖它，代码级自测过、真实 UI 却从未验证到。
+
+改为不依赖前端信标的可靠架构：后端 2 分钟定时复查检测到待拉取/推送时，直接排队一个 watcher 进 `wait` 态（`shouldCloseDsh:false`，**不关闭 DSH**）；用户点 × 关闭 DSH 后，预排的 watcher 自动进入 run 执行推送/拉取。前端信标保留作双保险——它若送达，发现已排队会直接复用，不会重复。配套：定时复查无人值守不弹确认框、已排队守卫检查 watcher 存活（超时后允许重排）、开关每次复查重新读取。selftest 加 4 条断言防回归。
+
 ### 修复点 × 关闭后 watcher 被孤儿进程卡在 wait（0.4.04）
 
 点 × 关闭后 push watcher 已经排上，但可能卡在 wait 阶段迟迟不执行。根因：`WatchPid` 被强杀后，常留下一个**无前台窗口的孤儿 DSH 子进程**（启动时间比 watcher 还早，父进程已死）。僵死 watcher 自清的旧判据要求「所有现存 DSH 都比 watcher 新」，这个孤儿进程把它永久破坏——`newerAll.Count ≠ byName.Count`，watcher 死等 30 分钟还霸占 `auto-sync.lock`，新 watcher 也没法接管。判定改成「有没有比 watcher 更早、且有前台窗口的 DSH 实例」：真正代表「排队那次 DSH 还在用」的是有窗口的实例；无窗口残留和新实例都不该挡住让位，watcher 立即 `exit 3` 清锁让新 watcher 接管。selftest 加断言防回归。
@@ -767,6 +773,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 | 日期 | 版本 | 要点 |
 |---|---|---|
+| 2026-11-25 | 0.4.05 | 点 × 有待推送却没推送：根因前端信标未送达，改后端定时复查预排 watcher（不关 DSH），关窗后自动执行；前端信标降为双保险 |
 | 2026-11-25 | 0.4.04 | 修复点 × 关闭后 push watcher 被无窗口孤儿进程卡在 wait 不执行：过期判定改看有无遗留前台窗口，立即清锁让位 |
 | 2026-11-25 | 0.4.03 | 重新打包发布：代码与 0.4.02 一致，仅版本与发布元数据更新到 0.4.03 |
 | 2026-11-25 | 0.4.02 | 修复 npm 兜底下载的版本规范化：0.4.01 被 npm semver 规范化成 0.4.1，拼 tarball 时去前导零，否则 404 |

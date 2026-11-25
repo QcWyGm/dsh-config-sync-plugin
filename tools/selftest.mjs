@@ -1968,5 +1968,18 @@ console.log('== 0.4.02：npm tarball 版本按 semver 规范化（0.4.01 → 0.4
   check('npmTgzUrls 保留预发布/构建后缀清洗',
     idxSrc.includes("semver.replace(/[^0-9A-Za-z.+\\-]/g, '')"), 'index.js 版本清洗')
 }
+console.log('')
+console.log('== 0.4.05：定时复查预排 watcher，不依赖前端信标 ==')
+{
+  const idxSrc = readFileSync(join(pluginRootSelf, 'index.js'), 'utf8')
+  check('scheduleAutoStart 的 run 调用 checkAndQueueAutoSync 预排 watcher',
+    /await checkAndQueueAutoSync\(dshHome, config, settings, repo, appRoot, \{ shouldCloseDsh: false, isPeriodic: true \}\)/.test(idxSrc), 'index.js 定时预排')
+  check('checkAndQueueAutoSync 支持 isPeriodic 参数',
+    /isPeriodic = false/.test(idxSrc) && /isManualTrigger/.test(idxSrc), 'index.js isPeriodic 参数')
+  check('定时复查无人值守不弹确认框',
+    /!skipConfirm && !isManualTrigger && !isPeriodic/.test(idxSrc), 'index.js 定时免确认')
+  check('已排队守卫检查 watcher 存活（超时后可重排）',
+    /autoState\.pending && isProcessAlive\(autoState\.pending\.watcherPid\)/.test(idxSrc), 'index.js 存活守卫')
+}
 process.exit(failures === 0 ? 0 : 1)
 

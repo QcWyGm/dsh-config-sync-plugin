@@ -1,10 +1,10 @@
 {
-  "version": "0.4.04",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.04/dsh-config-sync-plugin-0.4.04.tgz",
-  "tgzBytes":443850,
-  "sha256":"ef32d18a743f7d23a600d98ea3fa85dcf30566b1265d8c8d2e7f5cba0e913620",
+  "version": "0.4.05",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.05/dsh-config-sync-plugin-0.4.05.tgz",
+  "tgzBytes":445420,
+  "sha256":"ca4bb5dda623c295c203bcc4db5fb7d2c1c07a10b0ad0fd8a3f0a5b7fdf3743c",
   "releasedAt": "2026-11-25",
-  "notes": "修复点 × 关闭后 push watcher 卡在 wait 不执行：WatchPid 被强杀后常留下一个无前台窗口的孤儿 DSH 子进程（启动时间比 watcher 还早），旧判据「所有 DSH 都比 watcher 新」被它破坏，watcher 死等 30 分钟还霸占 auto-sync.lock。判定改为「有无比 watcher 更早、且有前台窗口的 DSH 实例」——无窗口残留/新实例不再挡住过期让位，watcher 立即 exit 3 清锁让新 watcher 接管。保留 0.4.03 及以前全部修复。",
-  "notesEn": "Fix watcher stuck in wait after × close: when WatchPid is force-killed it often leaves an orphan DSH child with no foreground window (started before the watcher); the old check 'all DSH newer than watcher' was broken by it, so the watcher idled 30 min holding auto-sync.lock. The check now looks for 'a DSH instance older than the watcher WITH a foreground window' — windowless leftovers/new instances no longer block stale-watcher handoff, so the watcher exits 3 and clears the lock immediately. Keeps 0.4.03 and all earlier fixes.",
+  "notes": "修复点 × 有待推送却没推送：端到端诊断确认后端判据与路由完全正常（手动 POST auto-exit 立即 queued:true 并推送），根因是前端卸载信标 pagehide→sendBeacon 在 DSH 真正退出时请求送不到后端。改为不依赖前端：后端 2 分钟定时复查检测到待拉取/推送即预排 watcher 进 wait 态（shouldCloseDsh:false 不关 DSH），用户点 × 关闭后预排的 watcher 自动 run 执行；前端信标保留作双保险。定时复查无人值守不弹确认框，watcher 超时后允许重排，开关每次复查重读。保留 0.4.04 及以前全部修复。",
+  "notesEn": "Fix '× close with pending push but nothing happens': end-to-end diagnosis confirmed the backend check and route are fine (manual POST auto-exit instantly returns queued:true and pushes); root cause is the frontend unload beacon pagehide→sendBeacon never reaching the backend when DSH actually exits. Now independent of the frontend: the backend 2-min periodic check queues a watcher into wait state as soon as pending pull/push is detected (shouldCloseDsh:false, no auto-close); when the user clicks × to close, the pre-queued watcher auto-runs. Frontend beacon kept as a backup. Periodic check is unattended (no confirm dialog), allows re-queue after watcher timeout, and re-reads switches each cycle. Keeps 0.4.04 and all earlier fixes.",
   "minClient": "0.2.2-rc.2"
 }

@@ -257,6 +257,12 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Pending push but nothing happens on × close: backend periodic pre-queue (0.4.05)
+
+End-to-end diagnosis (manual POST to `/config-sync/auto-exit`) proved the backend check and route are fine — it instantly returns `queued:true`, queues the watcher, force-exits DSH and completes the push. Root cause is the frontend: `pagehide → navigator.sendBeacon('/config-sync/auto-exit')` never reaches the backend when DSH really exits (no beacon arrival in launch.log during × close), yet 0.3.96+ relied solely on it — code-level selftests passed but real UI never verified it.
+
+Now independent of the frontend beacon: the backend 2-min periodic check queues a watcher into `wait` state as soon as it detects pending pull/push (`shouldCloseDsh:false`, **no auto-close**); when the user clicks × to close DSH, the pre-queued watcher auto-runs the push/pull. The frontend beacon is kept as a backup — if it does arrive it reuses the existing queue, no duplication. Also: periodic check is unattended (no confirm), the queue guard checks watcher liveness (allows re-queue after timeout), and switches are re-read every cycle. 4 selftest assertions added.
+
 ### Fix watcher stuck in wait after × close due to orphan process (0.4.04)
 
 After clicking × the push watcher gets queued but can stall in wait. Root cause: when WatchPid is force-killed it often leaves a **windowless orphan DSH child** (started before the watcher, parent dead). The stale-watcher check required "all DSH processes newer than the watcher", which this orphan permanently broke — `newerAll.Count ≠ byName.Count`, so the watcher idled 30 min holding `auto-sync.lock` and no new watcher could take over. The check now looks for "a DSH instance older than the watcher WITH a foreground window": the real signal that "the queued DSH is still in use" is a windowed instance; windowless leftovers and new instances no longer block handoff, and the watcher exits 3 to clear the lock immediately. Selftest assertion added.
@@ -785,6 +791,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-11-25 | 0.4.05 | Pending push but nothing on × close: root cause frontend beacon not delivered; backend periodic check now pre-queues watcher (no auto-close), runs on window close; frontend beacon demoted to backup |
 | 2026-11-25 | 0.4.04 | Fix watcher stuck in wait after × close due to windowless orphan process: stale check now looks for a leftover foreground window, clears lock and hands over immediately |
 | 2026-11-25 | 0.4.03 | Repackaged release: code identical to 0.4.02; only version and release metadata updated to 0.4.03 |
 | 2026-11-25 | 0.4.02 | Fix npm fallback version normalization: npm semver turns 0.4.01 into 0.4.1; strip leading zeros when building tarball URL, otherwise 404 |

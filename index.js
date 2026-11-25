@@ -3507,9 +3507,9 @@ async function handleAuto(req, res, config) {
 /** 核心判断逻辑：给定配置与仓库，判断是否需要自动拉取/推送，需要则排队 watcher（可选关闭 DSH）。
  * 供 scheduleAutoStart（定时）、triggerAutoSyncOnClose（关闭钩子）、handleSettings（开关即时触发）复用。 */
 async function checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, options = {}) {
-  const { skipConfirm = false, isManualTrigger = false, shouldCloseDsh = true } = options
-  // 已经排队等退出了就别重复拉起 watcher
-  if (autoState.pending) return { queued: false, reason: 'already_pending' }
+  const { skipConfirm = false, isManualTrigger = false, shouldCloseDsh = true, isPeriodic = false } = options
+  // 已经排队等退出了就别重复拉起 watcher；但 watcher 已死（超时退出）时允许重排
+  if (autoState.pending && isProcessAlive(autoState.pending.watcherPid)) return { queued: false, reason: 'already_pending' }
   if (!repo || !isDir(join(repo, '.git'))) {
     return { queued: false, reason: 'no_repo' }
   }
@@ -3521,7 +3521,8 @@ async function checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, o
 
   // autoPull：云端领先，且开启了自动拉取
   if (settings.autoPull && drift.behind > 0) {
-    if (!skipConfirm && !isManualTrigger) {
+    // 定时复查是无人值守，不弹确认框；用户显式动作（关闭/手动）才可能弹。
+    if (!skipConfirm && !isManualTrigger && !isPeriodic) {
       const yes = await askConfirm(
         t('云端有更新，要同步到本机吗？', 'The cloud has new commits — sync them to this machine?'),
         t(
@@ -3577,12 +3578,13 @@ async function checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, o
  * 只做 drift 检查与状态更新，不自动关闭 DSH；关闭只在用户显式动作（× 关闭、手动按钮）触发。 */
 function scheduleAutoStart(config) {
   const dshHome = config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh')
-  const settings = readSettings(dshHome)
-  if (!settings.autoPull && !settings.autoPush) return
   if (autoState.timer) return
   const run = async () => {
     try {
-      if (autoState.pending) return
+      // 每次复查都重新读开关：用户中途改了 autoPull/autoPush，下一次复查就要按新值走
+      const settings = readSettings(dshHome)
+      if (!settings.autoPull && !settings.autoPush) return
+      if (autoState.pending && isProcessAlive(autoState.pending.watcherPid)) return
       const repo = resolveRepo(config?.repoPath, dshHome).repo || ''
       if (!repo || !isDir(join(repo, '.git'))) {
         autoState.lastCheckError = (repo && repoPhase(repo) === 'empty') ? '' : '仓库未就位'
@@ -3598,7 +3600,13 @@ function scheduleAutoStart(config) {
         return
       }
       autoState.drift = drift
-      // 仅更新状态供面板显示；不自动关闭 DSH，关闭由用户显式动作触发
+      // 0.4.05：不再只更新状态。前端卸载信标（pagehide→sendBeacon）实测在 DSH 退出时
+      // 请求送不到后端，导致点 × 后虽然有待推送却没排 watcher。改为由这条可靠的后端
+      // 定时复查直接排队：有待拉取/推送就排一个 watcher 进 wait 态，但不关闭 DSH
+      // （shouldCloseDsh:false）。用户点 × 关闭 DSH 后，预排的 watcher 自动进入 run 执行。
+      // 前端信标仍保留作双保险：它若送达、发现已排队会直接复用，不会重复。
+      const appRoot = resolveAppRoot(config?.appRoot) || ''
+      await checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, { shouldCloseDsh: false, isPeriodic: true })
     } catch (error) {
       autoState.checking = false
       autoState.lastCheckAt = Date.now()
