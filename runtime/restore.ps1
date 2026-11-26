@@ -46,35 +46,33 @@ $ProfileDir = Join-Path $DshHome ('profiles\' + $ProfileName)
 $ProfileFiles = @('package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.yml', 'cordis.patch.yml')
 $HomeFiles = @('AGENTS.md', 'prompt-inject.md')
 
-# 客户端根：没传就按常见安装位置探测，判据是存在 resources\app\package.json
+# 客户端根：优先复用主链路 Resolve-DshAppRoot（显式参数 → $env:DSH_APP_ROOT → 注册表 → 多盘候选）；
+# 实在找不到时保留 restore 原有的 D:\DeepSeekHarness 默认路径兜底，避免旧行为报错。
 function Resolve-AppRoot([string]$explicit) {
-  $cands = @()
-  if ($explicit) { $cands += $explicit }
-  $cands += @('D:\DeepSeekHarness', 'D:\DSH', 'G:\DSH', 'G:\DeepSeekHarness', 'C:\DeepSeekHarness')
-  foreach ($c in $cands) {
-    if (Test-Path -LiteralPath (Join-Path $c 'resources\app\package.json')) { return $c }
-  }
+  $resolved = Resolve-DshAppRoot $explicit
+  if ($resolved) { return $resolved }
   if ($explicit) { return $explicit }
   return 'D:\DeepSeekHarness'
 }
 
 # git 位置探测统一在 dsh-sync-common.ps1 里（Get-GitExe），restore 允许找不到（只影响 pnpm 安装步骤）
 
-# 按 profile\package.json 的 bundles 逐项查能否解析（profile\node_modules 优先，再宿主自带 node_modules）
+# 按 profile\package.json 的 bundles 逐项查能否解析（profile\node_modules 优先，再宿主磁盘/asar）
+# 宿主侧统一交给 Test-HostBundle：它同时查 resources\app\dsh\node_modules 与 resources\app.asar，
+# 打包版宿主不再因为 asar 里的 bundle 被误报为缺失。
 function Get-UnresolvedBundles {
   $missing = New-Object System.Collections.ArrayList
   $pkgPath = Join-Path $ProfileDir 'package.json'
   if (-not (Test-Path -LiteralPath $pkgPath)) { return $missing }
   try { $pkg = Get-Content -LiteralPath $pkgPath -Raw -Encoding utf8 | ConvertFrom-Json } catch { return $missing }
   $bundles = @($pkg.dsh.profile.bundles)
-  $roots = @((Join-Path $ProfileDir 'node_modules'), (Join-Path $AppRoot 'resources\app\dsh\node_modules'))
+  $profileModules = Join-Path $ProfileDir 'node_modules'
   foreach ($b in $bundles) {
     if ([string]::IsNullOrWhiteSpace($b)) { continue }
     $rel = [string]($b -replace '/', '\')
     $found = $false
-    foreach ($r in $roots) {
-      if (Test-Path -LiteralPath (Join-Path $r (Join-Path $rel 'package.json'))) { $found = $true; break }
-    }
+    if (Test-Path -LiteralPath (Join-Path $profileModules (Join-Path $rel 'package.json'))) { $found = $true }
+    if (-not $found -and (Test-HostBundle $AppRoot $b)) { $found = $true }
     if (-not $found) { [void]$missing.Add($b) }
   }
   return $missing
@@ -501,7 +499,7 @@ if (Test-Path -LiteralPath $contractPath) {
 }
 Say "  本机 app 版本：$localVer；仓库契约：$contractVer"
 if ($localVer -and $contractVer -and $localVer -ne $contractVer) {
-  Warn "两端版本不一致：本机 $localVer，仓库契约 $contractVer。还原只修本机文件，拉起后仍可能在 pull 时被版本契约拦下（需升级本机，或 pull 加 -AllowVersionDrift）。"
+  Warn "两端版本不一致：本机 $localVer，仓库契约 $contractVer。0.4.10 起 pull 会放行版本差异，仅实验 bundle 按契约剔除；如需完全一致请升级本机。"
 }
 
 $missing = @(Get-UnresolvedBundles)

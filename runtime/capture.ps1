@@ -310,6 +310,7 @@ function Sync-WorkspaceCapture {
 # 绝不做文本替换（zstd 流无法替换；projcache 按 sessionId 索引，cwd 只是历史记录，B 机可读）。
 # sessions\ 一级目录名 = Get-SessionDirName(工作区绝对路径)；该编码不可逆，所以 capture 用
 # 「已知工作区路径 → 编码 → 匹配目录名」建 dir ↔ workspaceId 映射，apply 再按本机路径重编码目录名。
+# 与另一文件同名函数保持一致，修改需同步
 function Get-SessionDirName([string]$path) {
   $sb = New-Object System.Text.StringBuilder
   [void]$sb.Append('--')
@@ -588,7 +589,6 @@ function Sync-ConversationCapture {
 # 关键修复（2026-11-10）：旧版正则把目录名写死成 DeepSeekHarness，客户端装在 D:\DSH 时归一化整体失效，
 # 本机绝对路径会被原样写进仓库 → 另一台 apply 后 lock 与 package.json 错位 → 安装半装 → 启动崩。
 # 现在先按本机 -AppRoot 的实际路径做字面替换（任意目录名、任意盘符），再用「末级目录名」正则兜底。
-$AppRootPattern = Get-AppRootPattern $AppRoot
 
 function Set-AppRootToken([string]$text) {
   return (Convert-AppRootText $text $AppRoot $AppRootToken)

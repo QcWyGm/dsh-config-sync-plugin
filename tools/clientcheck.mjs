@@ -122,9 +122,10 @@ check('设置摘要行展开时 fetch 远端再刷新（远端信息不陈旧）
   && source.includes("callAuto({ action: 'check' })")
   && source.includes('setInterval(refreshRemoteNow, 30000)')
   && source.includes('onClick: refreshRemoteNow'))
+// 0.4.11 等价重构：dirty/uncommitted 读取口径统一抽成 uncommittedOf() helper
 check('远端「未提交」纳入本机待同步、刷新按钮触发 fetch（0.3.92）',
-  source.includes('repo.uncommitted ?? repo.dirty')
-  && source.includes('data.repo.uncommitted ?? data.repo.dirty')
+  source.includes('const uncommittedOf = (repo) => (repo?.uncommitted ?? repo?.dirty ?? 0)')
+  && source.includes('uncommittedOf(data.repo)')
   && source.includes('本机待同步 ${data.repo.pending}'))
 check('设置摘要行两个立即按钮走 pull-now / push-now 队列',
   source.includes("actNow('pull-now')")

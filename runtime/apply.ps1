@@ -48,6 +48,7 @@ param(
   [switch]$SkipWorkspace,
   [switch]$PruneWorkspace,
   [switch]$ReplaceWorkspaceRegistry,
+  # 已废弃：0.4.10 起默认放行版本差异，此开关不参与判据，仅为兼容旧调用保留
   [switch]$AllowVersionDrift,
   [switch]$ForceBundles,
   [string]$WorkspaceHome = $(Join-Path $env:USERPROFILE 'Documents\deepseek-harness'),
@@ -404,6 +405,7 @@ function Sync-WorkspaceApply {
 # sessions\ 一级目录名 = Get-SessionDirName(工作区绝对路径)。编码不可逆，所以 capture
 # 在 conversations\session-index.json 里记了「目录名 ↔ 工作区 ID」；apply 按本机
 # -AppRoot / -WorkspaceHome 展开后的路径重新编码目录名，B 机才能认出这些会话。
+# 与另一文件同名函数保持一致，修改需同步
 function Get-SessionDirName([string]$path) {
   $sb = New-Object System.Text.StringBuilder
   [void]$sb.Append('--')
@@ -920,7 +922,7 @@ foreach ($b in $bundlesInRepo) {
   if ($b -notlike '@deepseek-ai/dsh-experimental-*') { continue }
   $why = $null
   if ($versionDrift) {
-    $why = "本机 app 版本不同（$hostAppVersion ≠ $contractVersion）"
+    $why = "本机 app 版本不同（$hostAppVersion ≠ $contractVersion）；仅剔除实验 bundle，不影响主流程"
   } else {
     # 宿主自带 bundle 的落点因构建而异：解包版在 resources\app\dsh\node_modules，
     # 打包版整包塞在 app.asar 里（磁盘上没有目录）——所以交给 Test-HostBundle 统一判断，别只查路径。

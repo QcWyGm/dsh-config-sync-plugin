@@ -32,6 +32,7 @@ param(
   [switch]$WorkspaceOnly,
   [switch]$SkipWorkspace,
   [switch]$SkipInstall,
+  # 已废弃：0.4.10 起默认放行版本差异，此开关不参与判据，仅为兼容旧调用保留
   [switch]$AllowVersionDrift,
   # 推送前强制全量重扫历史里的超大文件（默认只在首次或推送被拒时才扫，省 20s）
   [switch]$ScanHistory,
@@ -567,7 +568,7 @@ function Get-RemoteFileCount([string]$RemoteUrl, [int]$Heads = -2) {
   初始化推送：本机空目录 + 云端空仓库，把本机配置当作仓库的初始内容推上去。
   骨架要一起带进仓库 —— 历史仓库本来就有 apply.ps1 / capture.ps1 / dsh-sync-common.ps1 这几份副本，
   少拷了它们，远端就变成「只有 settings 没有执行体」的半截仓库，另一台 pull 下来跑不起来。
-  profile\host-contract.json 用本机客户端版本生成（apply 靠它校验两端版本，缺了只会跳过校验）。
+  profile\host-contract.json 用本机客户端版本生成（apply 仅用于实验 bundle 门控；版本差异不再阻断，只提示）。
 #>
 function Initialize-EmptyRepo([string]$RemoteUrl) {
   if (-not $RemoteUrl) {
@@ -1109,6 +1110,7 @@ $applyArgs = @{ RepoRoot = $RepoRoot; DshHome = $DshHome; ProfileName = $Profile
 if ($WorkspaceOnly) { $applyArgs['WorkspaceOnly'] = $true }
 if ($SkipWorkspace) { $applyArgs['SkipWorkspace'] = $true }
 if ($SkipInstall) { $applyArgs['SkipInstall'] = $true }
+# AllowVersionDrift 已废弃；apply.ps1 从 0.4.10 起忽略版本差异门控，这里仅为兼容旧调用继续透传
 if ($AllowVersionDrift) { $applyArgs['AllowVersionDrift'] = $true }
 if ($Force) { $applyArgs['Force'] = $true }
 & (Join-Path $PSScriptRoot 'apply.ps1') @applyArgs

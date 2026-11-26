@@ -257,6 +257,18 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Code cleanup and consistency fixes: equivalent refactor, no feature change (0.4.11)
+
+This release is an equivalent refactor. The normal sync path is identical to 0.4.10 and no user-visible feature changes:
+
+- **Gate criteria consolidated**: `pushAllowed` / `pullAllowed` are now unified into `canPush()` / `canPull()`, word-for-word equivalent to the original criteria; the fast criteria on the close path are unchanged and introduce no new allow conditions.
+- **One fewer remote request**: the periodic re-check already ran `git fetch` and has the drift, so it reuses it via `driftOverride` instead of fetching again.
+- **Idempotent force-kill**: multiple force-kill triggers within 1.5 seconds execute only once, so the close hook / periodic pre-queue / frontend beacon do not kill the same process family repeatedly.
+- **Single source of truth**: the plugin root and version are consolidated to a single `PLUGIN_DIR` / `PLUGIN_VERSION` definition; dead code (`lsRemoteHeads`, unused imports, unused state) was removed.
+- **Consistency fixes**: `market-index.json` `publishTimestamp` normalized to milliseconds; leading-zero versions gain an `npmVersion` field; packaging excludes `_stage-*` / `_refactor-*` / `*.bak*` temp artifacts; the restore flow's AppRoot detection and experimental-bundle (`app.asar`) recognition are aligned with the main path; the language header is computed at request time (POST follows a language switch too); `callUpdate` now checks failures.
+
+Self-test: the four `node --check` targets, `selftest.mjs` and `clientcheck.mjs` match the 0.4.10 baseline item by item (the 8 prepare failures in this environment are pre-existing baseline failures with no `origin` configured, not introduced by this release).
+
 ### Pending push but nothing happens on × close: backend periodic pre-queue (0.4.05)
 
 End-to-end diagnosis (manual POST to `/config-sync/auto-exit`) proved the backend check and route are fine — it instantly returns `queued:true`, queues the watcher, force-exits DSH and completes the push. Root cause is the frontend: `pagehide → navigator.sendBeacon('/config-sync/auto-exit')` never reaches the backend when DSH really exits (no beacon arrival in launch.log during × close), yet 0.3.96+ relied solely on it — code-level selftests passed but real UI never verified it.

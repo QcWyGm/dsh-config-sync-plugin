@@ -277,6 +277,18 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 代码整理与一致性修复：等价重构，功能不变（0.4.11）
+
+本版是一次等价重构，正常同步路径与 0.4.10 完全一致，不改变任何用户可见功能：
+
+- **门禁判据收敛**：`pushAllowed` / `pullAllowed` 抽成 `canPush()` / `canPull()` 统一函数，判据与原来逐字等价；退出关闭路径的 fast 判据保持原样，不引入新的放行条件。
+- **少一次远端请求**：定时复查已经 `git fetch` 得到 drift，直接复用并传给 `checkAndQueueAutoSync`（`driftOverride`），不再重复 fetch。
+- **强杀幂等**：1.5 秒内多次触发强杀只执行一次，避免窗口关闭钩子 / 定时预排 / 前端信标三路重复杀同一进程族。
+- **单一定义**：插件根目录与版本收敛到 `PLUGIN_DIR` / `PLUGIN_VERSION` 单一来源；删除从未调用的 `lsRemoteHeads`、死导入与未使用的 state 等死代码。
+- **一致性修复**：`market-index.json` 的 `publishTimestamp` 统一为毫秒；前导零版本补 `npmVersion` 字段；打包排除 `_stage-*` / `_refactor-*` / `*.bak*` 等临时产物；还原流程的 AppRoot 探测与实验 bundle（`app.asar`）识别对齐主链路；语言头改为请求时计算（切换语言后 POST 也跟随）；`callUpdate` 补失败判断。
+
+自测：`node --check` 四项、`selftest.mjs`、`clientcheck.mjs` 与 0.4.10 基线逐项一致（本环境 8 项 prepare 失败为无 origin 的既有基线失败，非本版引入）。
+
 ### 点 × 立即执行待推送/待拉取：后端窗口监视（0.4.06）
 
 0.4.05 把「点 × 后没执行」的根因定位到前端信标送不到后端，用 2 分钟定时复查预排 watcher 绕开。但预排有窗口期：用户在两次复查之间点 ×，那一刻既没有预排 watcher、信标又送不到，退出后就什么都不执行。

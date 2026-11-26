@@ -968,9 +968,8 @@ if (pullNote.statusCode === 400) {
 }
 
 // 配置仓库根目录那 6 个执行体，是「插件还没装 / 正在升级」时的兜底副本。
-// 它们一直靠人工同步，结果漂成半新半旧：sync/apply/common/post-exit 已升到 0.3.23，
-// capture/restore 还停在两天前的旧版 —— 平时不显形，只有 pull 真正走进「仓库副本」
-// 那条兜底路才会跑到旧逻辑。所以按字节比对，漂了就报，不再指望人记得。
+// 版本不同步时平时不显形，只有 pull 真正走进「仓库副本」那条兜底路才会跑到旧逻辑；
+// 因此按字节比对，漂了就报，不再指望人工记得同步。
 console.log('')
 console.log('== 配置仓库执行体副本一致性 ==')
 const execNames = ['apply.ps1', 'capture.ps1', 'dsh-sync-common.ps1', 'post-exit.ps1', 'restore.ps1', 'sync.ps1']
@@ -991,7 +990,7 @@ if (!existsSync(repoArg) || !existsSync(pluginRuntime) || !repoReady) {
     else if (!existsSync(source)) detail = `插件 runtime 没有 ${name}`
     else {
       same = readFileSync(mirror).equals(readFileSync(source))
-      if (!same) detail = `副本 ${readFileSync(mirror).length}B / 正本 ${readFileSync(source).length}B，跑 tools/sync-plugin-mirror.ps1 重新同步`
+      if (!same) detail = `副本 ${readFileSync(mirror).length}B / 正本 ${readFileSync(source).length}B，按 runtime/sync.ps1 重新同步执行体副本`
     }
     check(`执行体副本与插件 runtime 逐字节一致：${name}`, same, detail)
   }
@@ -1000,13 +999,13 @@ if (!existsSync(repoArg) || !existsSync(pluginRuntime) || !repoReady) {
   const sourceTool = join(pluginRuntime, 'tools', 'fix-session-cwd.mjs')
   const toolSame = existsSync(mirrorTool) && existsSync(sourceTool) && readFileSync(mirrorTool).equals(readFileSync(sourceTool))
   check('执行体副本与插件 runtime 逐字节一致：tools/fix-session-cwd.mjs', toolSame,
-    existsSync(mirrorTool) ? '内容已漂移，跑 tools/sync-plugin-mirror.ps1 重新同步' : '配置仓库没有 tools/fix-session-cwd.mjs')
+    existsSync(mirrorTool) ? '内容已漂移，按 runtime/sync.ps1 重新同步执行体副本' : '配置仓库没有 tools/fix-session-cwd.mjs')
   for (const tname of ['session-log-guard.mjs', 'session-log-lib.mjs', 'bili-state.mjs']) {
     const m = join(repoArg, 'tools', tname)
     const s = join(pluginRuntime, 'tools', tname)
     const ok = existsSync(m) && existsSync(s) && readFileSync(m).equals(readFileSync(s))
     check(`执行体副本与插件 runtime 逐字节一致：tools/${tname}`, ok,
-      !existsSync(m) ? `配置仓库没有 tools/${tname}` : (existsSync(s) ? '内容已漂移，跑 tools/sync-plugin-mirror.ps1 重新同步' : `插件 runtime 没有 tools/${tname}`))
+      !existsSync(m) ? `配置仓库没有 tools/${tname}` : (existsSync(s) ? '内容已漂移，按 runtime/sync.ps1 重新同步执行体副本' : `插件 runtime 没有 tools/${tname}`))
   }
 }
 
@@ -1048,11 +1047,16 @@ console.log('== 空白本机仓库：只允许拉取 ==')
   check('只有插件自己生成的 同步-*.cmd 与隐藏项算「空」',
     /同步-\[\\s\\S\]\*\\?\.cmd/i.test(indexNew) || /同步-\[/i.test(indexNew),
     'empty 判据没有排除 同步-*.cmd：生成过脚本之后就会被误判成 unusable')
+  // 0.4.11 等价重构：门禁判据抽成 canPush()/canPull() 单一来源，内联判据改调用；断言同时覆盖函数定义与调用点
   check('status 暴露 phase / remoteFiles / pushAllowed / pullAllowed',
     /phase,\s*\n\s*empty: phase === 'empty'/.test(indexNew)
     && /remoteFiles,/.test(indexNew) && /remoteEmpty: remoteFiles === 0/.test(indexNew)
-    && /pushAllowed: phase === 'ok' \|\| \(phase === 'empty' && remoteFiles === 0\)/.test(indexNew)
-    && /pullAllowed: phase === 'ok' \|\| \(\(phase === 'empty' \|\| phase === 'missing'\) && remoteFiles !== 0\)/.test(indexNew),
+    && (/pushAllowed: phase === 'ok' \|\| \(phase === 'empty' && remoteFiles === 0\)/.test(indexNew)
+      || (/pushAllowed: canPush\(phase, remoteFiles\)/.test(indexNew)
+        && /function canPush\(phase, remoteFiles\)/.test(indexNew)))
+    && (/pullAllowed: phase === 'ok' \|\| \(\(phase === 'empty' \|\| phase === 'missing'\) && remoteFiles !== 0\)/.test(indexNew)
+      || (/pullAllowed: canPull\(phase, remoteFiles\)/.test(indexNew)
+        && /function canPull\(phase, remoteFiles\)/.test(indexNew))),
     'status 没有暴露新门禁字段（remoteFiles / pushAllowed / pullAllowed），面板只能靠分支数猜')
   check('仓库三态 mode（ok / await-pull / await-init）按文件数算',
     /mode: phase === 'ok'[\s\S]{0,120}?remoteFiles === 0 \? 'await-init' : 'await-pull'/.test(indexNew),
@@ -1972,8 +1976,9 @@ console.log('')
 console.log('== 0.4.05：定时复查预排 watcher，不依赖前端信标 ==')
 {
   const idxSrc = readFileSync(join(pluginRootSelf, 'index.js'), 'utf8')
+  // 0.4.11 等价重构：调用点新增 driftOverride 复用本次复查的 drift，核心参数不变
   check('scheduleAutoStart 的 run 调用 checkAndQueueAutoSync 预排 watcher',
-    /await checkAndQueueAutoSync\(dshHome, config, settings, repo, appRoot, \{ shouldCloseDsh: false, isPeriodic: true \}\)/.test(idxSrc), 'index.js 定时预排')
+    /await checkAndQueueAutoSync\(dshHome, config, settings, repo, appRoot, \{ shouldCloseDsh: false, isPeriodic: true(?:, driftOverride: drift)? \}\)/.test(idxSrc), 'index.js 定时预排')
   check('checkAndQueueAutoSync 支持 isPeriodic 参数',
     /isPeriodic = false/.test(idxSrc) && /isManualTrigger/.test(idxSrc), 'index.js isPeriodic 参数')
   check('定时复查无人值守不弹确认框',

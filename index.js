@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 // 0.3.76：会话投影缓存守卫（agent-busy 自动清缓存，让缓存按日志重建）
 import { runGuard, clearSessionCaches, appendGuardLog } from './runtime/tools/session-cache-guard.mjs'
 // 0.3.76：工作区显示状态（三态 + 会话独立隐藏），自包含读写 DSH 两个权威文件
-import { readView, setWorkspaceState, setSessionState } from './runtime/tools/workspace-view.mjs'
+import { readView } from './runtime/tools/workspace-view.mjs'
 // 0.3.82：实时通道。拿不到 workspaceRegistry 时，这两个函数内部自动退回上面的文件写法。
 import { setWorkspaceStateLive, setSessionStateLive } from './runtime/tools/workspace-view.mjs'
 
@@ -75,6 +75,8 @@ function t(zh, en) {
 // ---- 插件自身的版本与更新源 ----
 // 插件目录就是 index.js 所在目录（apply 会把它部署成 <AppRoot>\dsh-config-sync-plugin-<ver>\）。
 const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url))
+// pluginRoot()/pluginVersion() 是历史调用点保留的同义包装，统一回到这一份定义，避免三处口径漂移。
+function pluginRoot() { return PLUGIN_DIR }
 const PLUGIN_VERSION = (() => {
   try {
     const pkg = JSON.parse(readFileSync(join(PLUGIN_DIR, 'package.json'), 'utf8'))
@@ -452,12 +454,8 @@ function runGit(args, env, timeout = 20000) {
   })
 }
 
-function lsRemoteHeads(url, settings) {
-  return probeRemote(url, settings).then((p) => (p ? p.heads : null))
-}
-
 /** 临时 bare 仓库里数一次远端某个分支的文件数；失败返回 null。 */
-async function remoteFileCount(url, settings, quiet) {
+async function remoteFileCount(url, settings) {
   const env = gitProbeEnv(settings)
   let dir = ''
   try {
@@ -492,7 +490,7 @@ async function probeRemote(url, settings) {
   let value = null
   if (heads === null) value = { heads: null, files: null }
   else if (heads === 0) value = { heads: 0, files: 0 }
-  else value = { heads, files: await remoteFileCount(url, settings, 'quiet') }
+  else value = { heads, files: await remoteFileCount(url, settings) }
   remoteProbeCache.set(url, { at: Date.now(), value })
   return value
 }
@@ -936,6 +934,19 @@ function repoPhase(dir) {
 }
 
 /**
+ * 仓库三态 → 推送/拉取门禁的唯一判据来源（面板 inspect 与后端自动同步共用口径）。
+ * phase: ok=真仓库 / empty=空目录 / missing=未建 / unusable=填错路径。
+ * remoteFiles: 云端分支树文件数，0=空、null=判不了。
+ * 注：判据与 0.4.10 原实现逐字一致，抽取只为消除三处重复，不改变任何放行行为。
+ */
+function canPush(phase, remoteFiles) {
+  return phase === 'ok' || (phase === 'empty' && remoteFiles === 0)
+}
+function canPull(phase, remoteFiles) {
+  return phase === 'ok' || ((phase === 'empty' || phase === 'missing') && remoteFiles !== 0)
+}
+
+/**
  * 体检。全部只读，不写任何文件（除了 prepare 那次由用户显式触发的 cmd 生成）。
  */
 async function inspect(config) {
@@ -1112,9 +1123,9 @@ async function inspect(config) {
         ? 'ok'
         : (remoteFiles === 0 ? 'await-init' : 'await-pull'),
       // 推送：真仓库，或「空目录 + 云端确实没文件」的首次推送（判不了时不放行，宁可按老规矩只拉）
-      pushAllowed: phase === 'ok' || (phase === 'empty' && remoteFiles === 0),
+      pushAllowed: canPush(phase, remoteFiles),
       // 拉取：真仓库，或空目录/没建目录且云端确实有文件（sync.ps1 的 Initialize-RepoIfNeeded 会自动 init + fetch + checkout）
-      pullAllowed: phase === 'ok' || ((phase === 'empty' || phase === 'missing') && remoteFiles !== 0),
+      pullAllowed: canPull(phase, remoteFiles),
       // 路径是怎么来的：settings=本机设置（面板可改）、config=插件配置、env=环境变量、auto=自动探测、none=没配
       source: resolved.source,
       configured: Boolean(settings.repoPath || config?.repoPath),
@@ -1286,10 +1297,6 @@ function pickPs1(repo, name) {
     `找不到 ${name}：仓库里没有（${fromRepo}），插件自带的 runtime 也没有（${fromPlugin}）`,
     `Cannot find ${name}: not in the repo (${fromRepo}) and not in the plugin's bundled runtime (${fromPlugin})`,
   ))
-}
-
-function pluginRoot() {
-  try { return dirname(fileURLToPath(import.meta.url)) } catch { return '' }
 }
 
 function buildCmd(config, action, repo, appRoot, dshHome, state = {}) {
@@ -1749,13 +1756,14 @@ function electronApp() {
 }
 
 /**
- * 让客户端**真的退出**。
+ * 请求客户端退出（手动「立即推送/拉取/还原」排队后走这条）。
  *
- * 旧实现是 `taskkill /PID <主进程>`（不带 /F）：对 Electron 主进程无效 ——
- * 主进程没有自己的顶层窗口，实测直接报 "This process can only be terminated forcefully"，
- * 于是「确认后自动退出 DSH」根本不生效，守护进程只能干等到 30 分钟超时。
- *
- * 现在优先 app.quit()（走 before-quit，配置照常落盘）；拿不到 electron 才退回 taskkill。
+ * 实现顺序（注释与实现保持一致，勿再写成「优先 app.quit」）：
+ *   1) 先按映像名发一次礼貌关闭 taskkill /IM（不带 /F），让 Electron 走正常关闭流程；
+ *   2) 3.5 秒后 /F 强杀残留进程族（插件跑在子进程里，只杀 process.pid 杀不干净）；
+ *   3) 拿到 electron 句柄时另发一次 app.quit()（走 before-quit 落盘）。
+ * 返回 true 表示「已发起退出请求」，不代表进程已确认退出（spawn 结果无法同步取得）。
+ * 退出后自动同步那条链路用 forceCloseDshDetached（独立进程延迟强杀），不要混用。
  */
 function closeDsh() {
   const exe = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe')
@@ -1788,8 +1796,17 @@ function closeDsh() {
  * 用 cmd /c + ping 做秒级延时（timeout.exe 在无控制台的非交互进程里会报错），
  * 先给点 × 触发的正常关闭流程一点时间落盘，再 /F 兜底残留进程。
  */
+let _forceCloseLastAt = 0
 function forceCloseDshDetached(config) {
   const dshHome = config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh')
+  // 幂等：同一次退出事件里「窗口关闭 / 信标 / 定时预排」三处入口可能接连触发，
+  // 1.5s 内只发一次独立强杀，避免重复 spawn。每次都是杀同一进程族，最终状态一致。
+  const _now = Date.now()
+  if (_now - _forceCloseLastAt < 1500) {
+    logLaunch(dshHome, 'auto-exit：1.5s 内已发起过强杀，本次幂等跳过（同一进程族）')
+    return true
+  }
+  _forceCloseLastAt = _now
   const sys = process.env.SystemRoot || 'C:\\Windows'
   const cmd = join(sys, 'System32', 'cmd.exe')
   const taskkill = join(sys, 'System32', 'taskkill.exe')
@@ -3664,13 +3681,15 @@ async function handleAuto(req, res, config) {
 /** 核心判断逻辑：给定配置与仓库，判断是否需要自动拉取/推送，需要则排队 watcher（可选关闭 DSH）。
  * 供 scheduleAutoStart（定时）、triggerAutoSyncOnClose（关闭钩子）、handleSettings（开关即时触发）复用。 */
 async function checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, options = {}) {
-  const { skipConfirm = false, isManualTrigger = false, shouldCloseDsh = true, isPeriodic = false } = options
+  const { skipConfirm = false, isManualTrigger = false, shouldCloseDsh = true, isPeriodic = false, driftOverride = null } = options
   // 已经排队等退出了就别重复拉起 watcher；但 watcher 已死（超时退出）时允许重排
   if (autoState.pending && isProcessAlive(autoState.pending.watcherPid)) return { queued: false, reason: 'already_pending' }
   if (!repo || !isDir(join(repo, '.git'))) {
     return { queued: false, reason: 'no_repo' }
   }
-  const drift = await checkDrift(repo)
+  // 定时复查已在同一次 run 里 checkDrift 过（结果写进 autoState.drift），经 driftOverride 复用，
+  // 避免几毫秒内对同一仓库重复 git fetch。未传时行为与原来完全一致（自行 fetch）。
+  const drift = driftOverride || await checkDrift(repo)
   if (!drift) {
     return { queued: false, reason: 'drift_failed' }
   }
@@ -3720,6 +3739,7 @@ async function checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, o
       const restart = settings.autoRestart !== false
       const started = await spawnWatcher({ mode: 'push', repo, appRoot, dshHome, restart })
       if (started.ok) {
+        // reason=旧版兜底文案，reasonZh/reasonEn=双语文案（前端按语言优先读双语、reason 兜底），三者是不同键，勿合并
         autoState.pending = { mode: 'push', at: Date.now(), reason: reasonZh, reasonZh, reasonEn, restart, watcherPid: started.pid, closeRequested: false }
         if (shouldCloseDsh) closeDsh()
         return { queued: true, mode: 'push', reason: reasonZh }
@@ -3763,7 +3783,8 @@ function scheduleAutoStart(config) {
       // （shouldCloseDsh:false）。用户点 × 关闭 DSH 后，预排的 watcher 自动进入 run 执行。
       // 前端信标仍保留作双保险：它若送达、发现已排队会直接复用，不会重复。
       const appRoot = resolveAppRoot(config?.appRoot) || ''
-      await checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, { shouldCloseDsh: false, isPeriodic: true })
+      // 复用本次复查刚 fetch 的 drift，避免 checkAndQueueAutoSync 内二次 fetch（同一仓库、同一时刻）
+      await checkAndQueueAutoSync(dshHome, config, settings, repo, appRoot, { shouldCloseDsh: false, isPeriodic: true, driftOverride: drift })
     } catch (error) {
       autoState.checking = false
       autoState.lastCheckAt = Date.now()
@@ -3807,6 +3828,8 @@ async function triggerAutoSyncOnClose(config, options = {}) {
     const phase = repoPhase(repo)
 
     // 本机仓库还没内容：autoPull 可以直接排队（sync.ps1 首次 clone），autoPush 不行（要先确认云端为空）
+    // 注：关闭走的 fast 路径不探测 remoteFiles，这里沿用原 phase === 'empty' 判据；
+    // inspect() 面板门禁已收敛到 canPull()（见文件上方），口径一致但此路径不额外 fetch，行为保持不变。
     if (phase !== 'ok') {
       if (settings.autoPull && phase === 'empty') {
         const restart = settings.autoRestart !== false
@@ -4329,13 +4352,8 @@ async function handleRoots(req, res, config) {
 const GH_DEFAULT_REPO = 'QcWyGm/dsh-config-sync-plugin'
 const GH_FEEDBACK_LABEL = 'feedback'
 
-/** 当前插件版本（读自己的 package.json；读不到就空串，不抛）。 */
-function pluginVersion() {
-  try {
-    const pkg = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'package.json'), 'utf8'))
-    return String(pkg.version || '')
-  } catch { return '' }
-}
+/** 当前插件版本（同义包装，统一回到 PLUGIN_VERSION 这一份定义）。 */
+function pluginVersion() { return PLUGIN_VERSION }
 
 function ghPathOf(dshHome) { return join(dshHome, 'config-sync-gh.json') }
 function outboxPathOf(dshHome) { return join(dshHome, 'config-sync-feedback-outbox.json') }

@@ -231,6 +231,10 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // 状态口径统一：后端 0.4.10 起用 uncommitted，旧快照/旧版本可能只有 dirty；
+    // 这里统一取值函数，local.pending / repo.pending 仍是“待推送”语义，保持原样。
+    const uncommittedOf = (repo) => (repo?.uncommitted ?? repo?.dirty ?? 0)
+
     /**
      * 左侧徽标：只说**本机自身**的状态（配置是否齐、依赖是否缺、有没有未提交/未推送的改动）。
      * 「云端比本机领先多少」一律交给右侧云端徽标（cloudLine），否则标题行会同时出现
@@ -259,7 +263,7 @@ window.__ModuleLoader__.load({
       }
       // 0.4.10 起：本机/契约版本不一致不再算告警——拉取不再因版本不一致被阻断，只保留左上角信息条展示。
       if (repo.behind === null) return { kind: 'idle', text: M('读不到本机 git 状态（git 不可用或没 upstream）', 'Cannot read local git state (git missing or no upstream)') }
-      if (repo.dirty > 0) return { kind: 'warn', text: M(`本机有 ${repo.dirty} 处未提交改动，建议推送`, `${repo.dirty} uncommitted change(s) — consider pushing`) }
+      if (uncommittedOf(repo) > 0) return { kind: 'warn', text: M(`本机有 ${uncommittedOf(repo)} 处未提交改动，建议推送`, `${uncommittedOf(repo)} uncommitted change(s) — consider pushing`) }
       if (repo.ahead > 0) return { kind: 'warn', text: M(`本机有 ${repo.ahead} 个提交还没推送`, `${repo.ahead} local commit(s) not pushed yet`) }
       // git 干净不代表没东西要推：新会话/新资料还躺在 ~\.dsh 里，没 capture 之前仓库是完全干净的
       const local = data.local || {}
@@ -329,14 +333,15 @@ window.__ModuleLoader__.load({
     }
 
     /** 每个 POST 都带 accept-language：宿主的建议句/错误信息按它出中文或英文。 */
-    const jsonHeaders = { 'content-type': 'application/json', ...langHeaders() }
+    // 函数化：每次请求现读语言，避免面板加载后才切换语言时 POST 仍带旧 accept-language。
+    const jsonHeaders = () => ({ 'content-type': 'application/json', ...langHeaders() })
 
     async function callPrepare(action, message, backupDir) {
       const res = await fetch('/config-sync/prepare', {
         method: 'POST',
         cache: 'no-store',
         credentials: 'same-origin',
-        headers: jsonHeaders,
+        headers: jsonHeaders(),
         body: JSON.stringify({ action, message: message || '', backupDir: backupDir || '' }),
       })
       const text = await res.text()
@@ -351,7 +356,7 @@ window.__ModuleLoader__.load({
         method: 'POST',
         cache: 'no-store',
         credentials: 'same-origin',
-        headers: jsonHeaders,
+        headers: jsonHeaders(),
         body: JSON.stringify(payload),
       })
       const text = await res.text()
@@ -367,7 +372,7 @@ window.__ModuleLoader__.load({
         method: 'POST',
         cache: 'no-store',
         credentials: 'same-origin',
-        headers: jsonHeaders,
+        headers: jsonHeaders(),
         body: JSON.stringify(payload),
       })
       const text = await res.text()
@@ -387,7 +392,7 @@ window.__ModuleLoader__.load({
           method: 'POST',
           cache: 'no-store',
           credentials: 'same-origin',
-          headers: jsonHeaders,
+          headers: jsonHeaders(),
           body: JSON.stringify(payload),
         }
         : { cache: 'no-store', credentials: 'same-origin', headers: langHeaders() })
@@ -408,7 +413,7 @@ window.__ModuleLoader__.load({
           method: 'POST',
           cache: 'no-store',
           credentials: 'same-origin',
-          headers: jsonHeaders,
+          headers: jsonHeaders(),
           body: JSON.stringify(payload),
         }
         : { cache: 'no-store', credentials: 'same-origin', headers: langHeaders() })
@@ -429,7 +434,7 @@ window.__ModuleLoader__.load({
           method: 'POST',
           cache: 'no-store',
           credentials: 'same-origin',
-          headers: jsonHeaders,
+          headers: jsonHeaders(),
           body: JSON.stringify(payload),
         }
         : { cache: 'no-store', credentials: 'same-origin', headers: langHeaders() })
@@ -447,14 +452,14 @@ window.__ModuleLoader__.load({
           method: 'POST',
           cache: 'no-store',
           credentials: 'same-origin',
-          headers: jsonHeaders,
+          headers: jsonHeaders(),
           body: JSON.stringify(payload),
         }
         : { cache: 'no-store', credentials: 'same-origin', headers: langHeaders() })
       const text = await res.text()
       let body
       try { body = text ? JSON.parse(text) : null } catch { throw badJson(res) }
-      if (!res.ok || !body) throw new Error((body && body.error) || `${res.status}`)
+      if (!res.ok || !body || body.ok !== true) throw new Error((body && body.error) || `${res.status}`)
       return body
     }
 
@@ -465,7 +470,7 @@ window.__ModuleLoader__.load({
           method: 'POST',
           cache: 'no-store',
           credentials: 'same-origin',
-          headers: jsonHeaders,
+          headers: jsonHeaders(),
           body: JSON.stringify(payload),
         }
         : { cache: 'no-store', credentials: 'same-origin', headers: langHeaders() })
@@ -484,7 +489,7 @@ window.__ModuleLoader__.load({
         method,
         cache: 'no-store',
         credentials: 'same-origin',
-        headers: payload ? jsonHeaders : langHeaders(),
+        headers: payload ? jsonHeaders() : langHeaders(),
         body: payload ? JSON.stringify(payload) : undefined,
       })
       const text = await res.text()
@@ -506,7 +511,7 @@ window.__ModuleLoader__.load({
           method: 'POST',
           cache: 'no-store',
           credentials: 'same-origin',
-          headers: jsonHeaders,
+          headers: jsonHeaders(),
           body: JSON.stringify(payload),
         }
         : { cache: 'no-store', credentials: 'same-origin', headers: langHeaders() })
@@ -688,8 +693,8 @@ window.__ModuleLoader__.load({
           k: M('远端', 'Remote'),
           v: repo.exists
             ? M(
-              `落后 ${repo.behind ?? '?'} · 领先 ${repo.ahead ?? '?'} · 未提交 ${repo.uncommitted ?? repo.dirty ?? '?'}` + (repo.pending ? `（本机待同步 ${repo.pending}）` : ''),
-              `behind ${repo.behind ?? '?'} · ahead ${repo.ahead ?? '?'} · uncommitted ${repo.uncommitted ?? repo.dirty ?? '?'}` + (repo.pending ? ` (${repo.pending} pending on this machine)` : ''),
+              `落后 ${repo.behind ?? '?'} · 领先 ${repo.ahead ?? '?'} · 未提交 ${uncommittedOf(repo)}` + (repo.pending ? `（本机待同步 ${repo.pending}）` : ''),
+              `behind ${repo.behind ?? '?'} · ahead ${repo.ahead ?? '?'} · uncommitted ${uncommittedOf(repo)}` + (repo.pending ? ` (${repo.pending} pending on this machine)` : ''),
             )
             : (repo.empty ? M('（拉取之后才有得比）', '(available after the first pull)') : M('（不可用）', '(unavailable)')),
         }),
@@ -845,7 +850,6 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = react.useState(false)
       const [err, setErr] = react.useState('')
       const [msg, setMsg] = react.useState('')
-      const [made, setMade] = react.useState(null)
       const [confirm, setConfirm] = react.useState(null)   // { snap, preview }：确认环节
       const [queued, setQueued] = react.useState(null)     // restore-now 的排队结果
       const [manual, setManual] = react.useState(null)     // 认不出类型时的「手动还原」指引
@@ -1164,17 +1168,6 @@ window.__ModuleLoader__.load({
         manualBlock,
         queuedBlock,
         lastRestoreBlock,
-        made
-          ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
-            h('div', { style: { ...S.footnote, color: 'var(--dsw-alias-state-success-primary)' } },
-              M(`已生成：${made.path}`, `Generated: ${made.path}`)),
-            h('div', { style: S.code }, made.command || ''),
-            h('div', { style: S.footnote }, M(
-              '完全退出 DSH 后双击这份 .cmd：先打印计划，输 y 才真正写（写前自动备份当前状态）。',
-              'Quit DSH, then double-click the .cmd: it prints the plan and only writes after y (backing up the current state first).',
-            )),
-          )
-          : null,
         err ? h('div', { style: { ...S.footnote, color: 'var(--dsw-alias-state-error-primary)' } }, M(`操作失败：${err}`, `Failed: ${err}`)) : null,
         msg ? h('div', { style: { ...S.footnote, color: 'var(--dsw-alias-state-success-primary)' } }, msg) : null,
         h('div', { style: S.footnote }, M(
@@ -2007,7 +2000,7 @@ window.__ModuleLoader__.load({
         try {
           const res = await fetch('/config-sync/auto', {
             method: 'POST', cache: 'no-store', credentials: 'same-origin',
-            headers: jsonHeaders,
+            headers: jsonHeaders(),
             body: JSON.stringify({ action, ...(extra || {}) }),
           })
           const text = await res.text()
@@ -2093,6 +2086,8 @@ window.__ModuleLoader__.load({
             type: 'button',
             style: canPullNow ? S.btnPrimary : { ...S.btnPrimary, opacity: 0.5, cursor: 'not-allowed' },
             disabled: Boolean(busy) || !canPullNow,
+            // 文案分叉是刻意的，与设置页摘要行不同：本卡的推送按钮在 initMode 下会切成「初始化推送」，
+            // 所以这里指引写「先初始化推送」与按钮实际标签一致；摘要行按钮固定「立即推送」，两处场景不同，保留各自口径。
             title: canPullNow ? '' : M('云端还是空的：没有内容可拉，先「初始化推送」', 'The cloud is still empty — nothing to pull, initialize push first'),
             onClick: () => act('pull-now'),
           }, M('立即拉取（会关闭 DSH）', 'Pull now (closes DSH)')),
@@ -2241,7 +2236,6 @@ window.__ModuleLoader__.load({
       // 定时器放 ref 里：数据每刷新一次 effect 就会重跑，若在 effect 里 return 清理函数，
       // 会把还没到点的"5 秒后消失"定时器一起清掉，提示就一直挂在屏幕上。
       const toastTimer = react.useRef(null)
-      const headerRef = react.useRef(null)
       const summary = summarize(data)
       // 门禁分三条：有路径就能生成还原脚本；拉取允许「真仓库 or 空目录」；推送只允许真仓库。
       // 空目录 = 新机器还没拉过，面板只放行「拉取」，推送按钮直接禁掉（后端也会再拦一次）。
@@ -2305,6 +2299,9 @@ window.__ModuleLoader__.load({
         if (failure) {
           showToast(M(`重新检测失败：${failure}`, `Re-check failed: ${failure}`))
         } else {
+          // 时间格式三处不统一是刻意保留：toast 只需当前「时分秒」即时反馈，短格式更轻；
+          // 概览指标用固定 M/D HH:mm 省版面，待办卡用 toLocaleString 出完整日期。三者可见格式不同，
+          // 统一会改变用户看到的文案，按功能不变优先保持原样。
           const t = new Date().toLocaleTimeString()
           showToast(M(`已重新检测，数据已是最新（${t}）`, `Re-checked, data is up to date (${t})`))
         }
@@ -2348,7 +2345,9 @@ window.__ModuleLoader__.load({
         }
       }
 
-      // 老路径遗留（install-live 装好了但没重启）：只重启，不装东西
+      // 老路径遗留（install-live 装好了但没重启）：只重启，不装东西。
+      // 这里保留 restartDsh：restartRequired 场景下包已经覆盖进插件目录，只缺一次重启；
+      // 主路径 restartAndInstall 走 install-restart，会先检查 prepared 包并再次安装，和这个场景不等价。
       const restartDsh = async () => {
         setUpdBusy(true)
         try {
@@ -2460,9 +2459,12 @@ window.__ModuleLoader__.load({
         return { kind: 'idle', text: M('云端检查中…', 'Checking the cloud…') }
       })()
 
+      // cloudLine 实际可能返回 ok / error / pull / init / idle；原先 init 落到默认「检查中」，
+      // error 也只写「不一致」，这里按 chipLabel 的同款口径补全每一种 kind 的短标签。
       const cloudLabel = cloudLine.kind === 'ok' ? M('一致', 'In sync')
-        : (cloudLine.kind === 'error' ? M('不一致', 'Out of sync')
-          : (cloudLine.kind === 'pull' ? M('待拉取', 'To pull') : M('检查中', 'Checking')))
+        : (cloudLine.kind === 'error' ? M('检查失败', 'Check failed')
+          : (cloudLine.kind === 'pull' ? M('待拉取', 'To pull')
+            : (cloudLine.kind === 'init' ? M('待初始化', 'To initialize') : M('检查中', 'Checking'))))
 
       // 插件更新卡：老版本机器进来第一眼就能看到"有新版本 x.y.z"和更新按钮；
       // 更新相关的配置（清单地址、只读令牌）也收在这张卡里，别散到「云端仓库」去。
@@ -2809,7 +2811,7 @@ window.__ModuleLoader__.load({
         // 页头在滚动区之外：内容滚不到它上面，区标签跳转后的标题也只出现在它下面
         h('div', { style: S.pageHeaderWrap },
           h('div', { style: S.pageHeaderInner },
-            h('div', { ref: headerRef, style: S.pageHeader },
+            h('div', { style: S.pageHeader },
             h('div', { style: S.pageHeaderMain },
               h('div', { style: S.pageTitleRow },
                 h('div', { style: S.pageTitle }, M('配置同步', 'Config Sync')),
@@ -2865,12 +2867,13 @@ window.__ModuleLoader__.load({
                 ...(conflictCard ? [['conflict', M('同步冲突', 'Sync conflicts')]] : []),
                 ...(showRoots ? [['roots', M('本机路径', 'Local paths')]] : []),
                 ['targets', M('同步目标', 'Targets')],
-                ['automation', M('自动化', 'Automation')],
-                ['actions', M('生成脚本', 'Scripts')],
-                ['restore', M('还原备份', 'Restore')],
-                ['scope', M('同步内容', 'Content')],
-                ['extra', M('插件数据', 'Plugin data')],
-                ['workspace', M('工作区显示', 'Workspaces')],
+                // 导航文案与 Section 标题口径对齐：key 仍是滚动锚点，只改显示标签，不改功能分组。
+                ['automation', M('自动化与插件更新', 'Automation & plugin update')],
+                ['actions', M('退出后执行', 'After exit')],
+                ['restore', M('还原备份', 'Restore backup')],
+                ['scope', M('同步内容', 'Sync content')],
+                ['extra', M('插件数据与额外路径', 'Plugin data & extra paths')],
+                ['workspace', M('工作区显示', 'Workspace visibility')],
                 ['feedback', M('问题反馈', 'Feedback')],
               ].map((pair) => {
                 const sid = pair[0], label = pair[1]
@@ -3527,8 +3530,8 @@ window.__ModuleLoader__.load({
             v: data.repo.behind === null
               ? M('读不到', 'Unavailable')
               : M(
-                `落后 ${data.repo.behind} · 领先 ${data.repo.ahead} · 未提交 ${data.repo.uncommitted ?? data.repo.dirty}` + (data.repo.pending ? `（本机待同步 ${data.repo.pending}）` : ''),
-                `behind ${data.repo.behind} · ahead ${data.repo.ahead} · uncommitted ${data.repo.uncommitted ?? data.repo.dirty}` + (data.repo.pending ? ` (${data.repo.pending} pending on this machine)` : ''),
+                `落后 ${data.repo.behind} · 领先 ${data.repo.ahead} · 未提交 ${uncommittedOf(data.repo)}` + (data.repo.pending ? `（本机待同步 ${data.repo.pending}）` : ''),
+                `behind ${data.repo.behind} · ahead ${data.repo.ahead} · uncommitted ${uncommittedOf(data.repo)}` + (data.repo.pending ? ` (${data.repo.pending} pending on this machine)` : ''),
               ),
           }) : null,
           data ? h(Kv, {
@@ -3546,6 +3549,9 @@ window.__ModuleLoader__.load({
               type: 'button',
               style: canPull ? S.btnPrimary : { ...S.btnPrimary, opacity: 0.5, cursor: 'not-allowed' },
               disabled: Boolean(actBusy) || !canPull,
+              // 文案分叉是刻意的，与「自动同步」卡不同：本摘要行的推送按钮固定显示「立即推送」，
+              // 两边都空时那次推送即初始化推送；自动同步卡在 initMode 会把按钮切成「初始化推送」。
+              // 两处场景不同，各自指引与旁边按钮标签一致，保留原口径。
               title: canPull ? '' : M('云端还是空的：没有内容可拉，先「立即推送」', 'The cloud is still empty — nothing to pull, push first'),
               onClick: () => actNow('pull-now'),
             }, actBusy === 'pull-now' ? M('排队中…', 'Queueing…') : M('立即拉取（会关闭 DSH）', 'Pull now (closes DSH)')),
@@ -3639,7 +3645,7 @@ window.__ModuleLoader__.load({
           method: 'POST',
           cache: 'no-store',
           credentials: 'same-origin',
-          headers: jsonHeaders,
+          headers: jsonHeaders(),
           body: JSON.stringify({ action: 'busy', sessionId: sessionId || '' }),
         })
         if (!res.ok) return false
