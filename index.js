@@ -22,7 +22,7 @@ import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, hostname, tmpdir } from 'node:os'
-import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // 0.3.76：会话投影缓存守卫（agent-busy 自动清缓存，让缓存按日志重建）
 import { runGuard, clearSessionCaches, appendGuardLog } from './runtime/tools/session-cache-guard.mjs'
@@ -2035,8 +2035,8 @@ function sessionTitleOf(dshHome, sessionId) {
 }
 
 /**
- * 本机 DSH 数据里「上次同步之后又写过」的文件有多少个。
- * 只看 mtime，不读内容、**不跑 capture**（跑 capture 要复制整个工作区，几 GB）。
+ * 本机 DSH 数据里「上次同步之后内容真正变了」的文件有多少个。
+ * 先用 mtime 快筛，再对 mtime 变过的文件比内容指纹（**不跑 capture**，那要复制整个工作区，几 GB）。
  * 代价控制：跳过 node_modules / models / .git 等，最多 20000 个文件、最多 1.5 秒。
  *
  * 为什么要补一层内容比对：`profile\cordis.patch.yml` 这类文件 **DSH 每次启动都会重写**
@@ -2073,6 +2073,14 @@ function localPending(dshHome, lastSyncAt, profileName, ctx = {}) {
       mirrored.set(join(profile, f), join(repoRoot, 'profile', f))
     }
   }
+  // 非镜像文件的基线（会话记录 / skills / mnemon / 工作区 …）由本插件维护在本机，
+  // 记录上次同步时刻的指纹；lastSyncAt 没变时用它判断 mtime 变化是否只是一次无内容重写。
+  // 基线文件缺失或 lastSyncAt 对不上时先按 mtime-only 计，完整扫描结束后重建基线。
+  // pendingKeys：建基线那一刻就已经 pending 的文件。它们后续即使指纹与基线相同也继续计入，
+  // 防止「升级后首次 inspect 建基线 → 刷新一次就把真改动洗白」；直到 lastSyncAt 前进
+  // （真正完成一次同步）重建基线才清除。
+  const contentBaseline = readContentBaseline(dshHome, since)
+  const baselineValid = Boolean(contentBaseline.lastSyncAt)
   const deadline = Date.now() + 1500
   let scanned = 0
   let pending = 0
@@ -2081,6 +2089,11 @@ function localPending(dshHome, lastSyncAt, profileName, ctx = {}) {
   const groupCount = new Map()
   // 每组保留具体明细名称（会话记录名 / 本机 profile 文件名 …），供面板展开查看
   const groupItems = new Map()
+  // 基线失效（lastSyncAt 前进/首次）时，扫描到的当前内容就是新基准；完整扫描后一次性重建
+  const rebuild = !baselineValid ? {} : null
+  // 重建时记录「建基线这一刻就已经 pending」的文件 key，随基线一起落盘（兼容旧基线缺省 []）
+  const rebuildPendingKeys = new Set()
+  const baselinePendingKeys = new Set(Array.isArray(contentBaseline.pendingKeys) ? contentBaseline.pendingKeys : [])
   const DETAIL_CAP = 50
   while (stack.length && scanned < 20000 && Date.now() < deadline) {
     const cur = stack.pop()
@@ -2094,14 +2107,26 @@ function localPending(dshHome, lastSyncAt, profileName, ctx = {}) {
       continue
     }
     scanned++
+    const key = contentKey(cur)
+    const twin = mirrored.get(cur)
+    let fp = null
+    // 基线有效时只为 mtime>since 的文件算指纹（判定内容是否真变）；重建时为所有扫描到的文件算。
+    if (rebuild || st.mtimeMs > since) {
+      try { fp = contentFingerprint(cur, ctx.appRoot) } catch { }
+    }
+    if (rebuild && fp) rebuild[key] = fp
     if (st.mtimeMs > since) {
       // 镜像文件的 mtime 更新可能只是宿主重写占位符：内容归一后一致就不算待推送
-      const twin = mirrored.get(cur)
       if (twin && isFile(twin)) {
         try {
           if (mirrorText(cur, ctx.appRoot) === mirrorText(twin, ctx.appRoot)) continue
         } catch { }
       }
+      // 非镜像文件：mtime 更新后再跟「上次同步时刻的指纹」比，真正变了才算待推送。
+      // DSH 宿主会重写会话 projcache / session-index 等文件的时间戳，字节没变时指纹相同 → 不报。
+      // 但建基线时已经 pending 的文件（pendingKeys）不能靠「指纹==基线」洗白，必须持续计入。
+      if (!twin && baselineValid && fp && contentBaseline.files[key] === fp && !baselinePendingKeys.has(key)) continue
+      if (rebuild && !twin) rebuildPendingKeys.add(key)
       pending++
       if (st.mtimeMs > newest) newest = st.mtimeMs
       const gid = pendingGroupOf(cur, dshHome, profile, workspacePaths)
@@ -2122,6 +2147,13 @@ function localPending(dshHome, lastSyncAt, profileName, ctx = {}) {
       if (!items) { items = []; groupItems.set(gid, items) }
       if (items.length < DETAIL_CAP && !items.includes(label)) items.push(label)
     }
+  }
+  const truncated = scanned >= 20000 || Date.now() >= deadline
+  // 只有「基线缺失/过期 + 本次完整扫描」才重建：此时磁盘内容就是 lastSyncAt 那次同步的内容。
+  // 基线有效时绝不更新——否则一直没同步的真实改动会被下一次面板刷新「洗白」成基线。
+  if (rebuild && !truncated) {
+    const fresh = { path: join(dshHome, CONTENT_BASELINE_NAME), lastSyncAt: since, complete: true, files: rebuild, pendingKeys: [...rebuildPendingKeys] }
+    writeContentBaseline(fresh, since)
   }
   const groups = [...groupCount.entries()]
     .map(([id, count]) => ({
@@ -2153,6 +2185,126 @@ function mirrorText(file, appRoot) {
     }
   }
   return text
+}
+
+// ---- 内容级 pending：DSH 重写 mtime 但字节没变的文件不再误报 ----
+// 基线由后端自己维护在 <dshHome>\.config-sync-content-baseline.json，不依赖 capture/ps1 配合。
+// 基线记录「上次同步时刻（lastSyncAt）」各文件的指纹；只要 lastSyncAt 没变就不更新，
+// 于是 mtime 被 DSH 重写但内容没变的文件（会话 projcache / session-index 等）能被识别并跳过，
+// 真内容变化则指纹不同继续计入 pending，直到下一次同步（lastSyncAt 变化）才重建基线。
+// pendingKeys 记录建基线那刻已 pending 的文件：首次建基线时真改动会被基线收录，若不额外记住，
+// 刷新一次就会因「指纹==基线」被洗白；这些 key 持续 pending 到 lastSyncAt 前进重建为止。
+// 指纹口径：文本统一 CRLF→LF、去尾部空白、把 appRoot 变体还原成 {{APP_ROOT}}，再 sha256；
+// .db/.sqlite 家族全量分块 sha256（原地页更新，size 不变但内容可变）；其他二进制（.zstd/.png/…）
+// 按 size + 头/中/尾采样 sha256，绝不做 UTF8 解码。
+const CONTENT_BASELINE_NAME = '.config-sync-content-baseline.json'
+const CONTENT_SAMPLE_BYTES = 262144 // 单文件最多读 256KB：几个 MB 的会话 zstd 也只读头/中/尾三段
+
+function isTextContentFile(file) {
+  const ext = extname(file).toLowerCase()
+  if (!ext) return true // AGENTS.md 类的无扩展名文本 / README
+  return ['.md', '.txt', '.json', '.jsonl', '.yml', '.yaml', '.ps1', '.mjs', '.js', '.ts', '.toml', '.ini', '.csv'].includes(ext)
+}
+
+function normalizeForContentHash(text, appRoot) {
+  let s = String(text).replace(/\r\n/g, '\n').replace(/\s+$/, '')
+  const root = String(appRoot || '').replace(/[\\/]+$/, '')
+  if (root) {
+    for (const variant of new Set([root, root.replace(/\\/g, '/'), root.replace(/\//g, '\\')])) {
+      if (variant) s = s.split(variant).join('{{APP_ROOT}}')
+    }
+  }
+  return s
+}
+
+/** 原地同尺寸更新型文件（SQLite 页覆盖）：头/中/尾采样会漏检中间页改动，需全量 hash。 */
+function isInPlaceUpdateFile(file) {
+  return ['.db', '.sqlite', '.sqlite3', '.mdb', '.accdb', '.realm'].includes(extname(file).toLowerCase())
+}
+const CONTENT_FULL_HASH_CAP = 67108864 // 64MB：超过则退回采样，避免单个巨型 db 吃掉 1.5s 扫描预算
+
+/**
+ * 内容指纹：小文本（<=256KB）归一后 sha256；db/sqlite 家族全量分块 sha256；
+ * 其余大文件/二进制按 size + 头/中/尾字节采样 sha256。
+ * 会话日志 zstd、未压缩的大 jsonl 都走采样分支，绝不做 UTF8 解码。
+ */
+function contentFingerprint(file, appRoot) {
+  const st = statSync(file)
+  const h = createHash('sha256')
+  h.update(`size:${st.size}\n`)
+  if (isTextContentFile(file) && st.size <= CONTENT_SAMPLE_BYTES) {
+    h.update(normalizeForContentHash(readFileSync(file, 'utf8'), appRoot))
+  } else if (isInPlaceUpdateFile(file) && st.size <= CONTENT_FULL_HASH_CAP) {
+    // SQLite / db 是页级原地覆盖：size 不变但中间页可能已改，全量分块读，避免采样漏检。
+    const fd = openSync(file, 'r')
+    try {
+      const buf = Buffer.allocUnsafe(65536)
+      let off = 0
+      let n
+      while ((n = readSync(fd, buf, 0, buf.length, off)) > 0) {
+        h.update(n === buf.length ? buf : buf.subarray(0, n))
+        off += n
+      }
+    } finally { closeSync(fd) }
+  } else {
+    const fd = openSync(file, 'r')
+    try {
+      const n = st.size
+      if (n <= CONTENT_SAMPLE_BYTES) {
+        const buf = Buffer.allocUnsafe(n)
+        let off = 0
+        while (off < n) off += readSync(fd, buf, off, Math.min(65536, n - off), off)
+        h.update(buf)
+      } else {
+        // 大文件：头 128KB + 中 16KB + 尾 128KB，覆盖 zstd 帧头/checksum 与末尾事件
+        const CHUNK = 131072
+        const buf = Buffer.allocUnsafe(CHUNK)
+        let off = 0
+        while (off < CHUNK) off += readSync(fd, buf, off, Math.min(65536, CHUNK - off), off)
+        h.update(buf)
+        const mid = Buffer.allocUnsafe(16384)
+        off = 0
+        const midPos = Math.floor((n - 16384) / 2)
+        while (off < mid.length) off += readSync(fd, mid, off, Math.min(8192, mid.length - off), midPos + off)
+        h.update(mid)
+        const tail = Buffer.allocUnsafe(CHUNK)
+        off = 0
+        while (off < tail.length) off += readSync(fd, tail, off, Math.min(65536, tail.length - off), n - CHUNK + off)
+        h.update(tail)
+      }
+    } finally { closeSync(fd) }
+  }
+  return h.digest('hex')
+}
+
+/**
+ * 读取本机内容基线：{ lastSyncAt, files: { "<本机绝对路径(正斜杠)>": "<sha256>" }, pendingKeys: [...] }。
+ * 只有记录的 lastSyncAt 与当前一致才有效；lastSyncAt 变化（完成一次同步）后视为过期，
+ * 由 localPending 在扫描结束后重写基线，不依赖任何 ps1。
+ * 旧基线（无 pendingKeys 字段）兼容为 []。
+ */
+function readContentBaseline(dshHome, since) {
+  const p = join(dshHome, CONTENT_BASELINE_NAME)
+  try {
+    const parsed = JSON.parse(readFileSync(p, 'utf8'))
+    // complete 必须是上一次完整扫描写出的；超时/超限的半截基线不采纳，下次重建。
+    if (parsed && parsed.complete === true && parsed.lastSyncAt === since && parsed.files && typeof parsed.files === 'object' && !Array.isArray(parsed.files)) {
+      return { path: p, lastSyncAt: parsed.lastSyncAt, complete: true, files: parsed.files, pendingKeys: Array.isArray(parsed.pendingKeys) ? parsed.pendingKeys : [] }
+    }
+  } catch { }
+  return { path: p, lastSyncAt: '', complete: false, files: {}, pendingKeys: [] }
+}
+
+/** 把本次完整扫描到的指纹写回基线（含扫描到的所有文件，不只 mtime 变的那批）。 */
+function writeContentBaseline(baseline, since) {
+  try {
+    writeFileSync(baseline.path, JSON.stringify({ lastSyncAt: since, complete: true, at: Date.now(), files: baseline.files, pendingKeys: Array.isArray(baseline.pendingKeys) ? baseline.pendingKeys : [] }, null, 2) + '\n', 'utf8')
+  } catch { /* 写不了就下次全量重建，功能不降级 */ }
+}
+
+/** 本机绝对路径（统一正斜杠、去尾斜杠）作为基线 key，避免 capture 侧会话目录 remap 造成键不匹配。 */
+function contentKey(file) {
+  return String(file).replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
 async function repoState(repo) {

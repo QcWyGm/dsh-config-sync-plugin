@@ -277,6 +277,16 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 待推送判据改为内容级：实际内容变了才提示推送（0.4.12）
+
+本版把「待推送」从时间戳判据改为内容级判据，只修误报、不改变正常推送/拉取流程：
+
+- **消除 mtime 假变更**：DSH 重写 `cordis.patch.yml`、会话 `projcache` / `session-index` 时只改时间戳不改内容，不再被判为待推送。
+- **内容指纹基线 + `pendingKeys`**：以内容指纹为基线识别真正变化，`pendingKeys` 防止双方同内容互相洗白。
+- **db/sqlite 不漏检**：≤64MB 的 db/sqlite 走全量 hash，避免同尺寸原地更新只看大小/mtime 时漏检。
+- **判据同步**：`autoPush` 与退出推送使用同一套新口径，不再一边按内容、一边按时间戳。
+- **验证**：隔离审查两轮无阻断项，`selftest` 无新增失败。
+
 ### 代码整理与一致性修复：等价重构，功能不变（0.4.11）
 
 本版是一次等价重构，正常同步路径与 0.4.10 完全一致，不改变任何用户可见功能：

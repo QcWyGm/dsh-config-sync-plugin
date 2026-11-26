@@ -257,6 +257,16 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Content-level pending detection: only prompt to push when content actually changed (0.4.12)
+
+This release changes the "pending push" rule from a timestamp check to a content-level check, fixing false positives without altering the normal push/pull flow:
+
+- **No more mtime-only false changes**: DSH rewrites of `cordis.patch.yml`, session `projcache` / `session-index` that only touch timestamps without changing content are no longer reported as pending.
+- **Content-fingerprint baseline + `pendingKeys`**: a content fingerprint is used as the baseline for real changes, and `pendingKeys` prevents the two sides from whitewashing each other with identical content.
+- **No db/sqlite misses**: db/sqlite files up to 64MB use full hashing so same-size in-place updates are not missed by size/mtime-only checks.
+- **Criteria aligned**: `autoPush` and close-time push use the same new rule, instead of one using content and the other timestamps.
+- **Verification**: two rounds of isolated review found no blocking issues, and `selftest` had no new failures.
+
 ### Code cleanup and consistency fixes: equivalent refactor, no feature change (0.4.11)
 
 This release is an equivalent refactor. The normal sync path is identical to 0.4.10 and no user-visible feature changes:

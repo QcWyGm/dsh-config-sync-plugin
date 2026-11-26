@@ -1,10 +1,10 @@
 {
-  "version": "0.4.11",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.11/dsh-config-sync-plugin-0.4.11.tgz",
-  "tgzBytes": 457474,
-  "sha256": "12863156c3c7df8f6791596931e05c301035a5dea48228aad4c54a1829e14a71",
+  "version": "0.4.12",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.12/dsh-config-sync-plugin-0.4.12.tgz",
+  "tgzBytes": 461532,
+  "sha256": "10d7438bf31e09cd0de9939f70e8e36c428d6597b34ee82fea9439e643b43dbf",
   "releasedAt": "2026-11-26",
-  "notes": "等价重构，正常同步路径与 0.4.10 完全一致、功能不变：pushAllowed/pullAllowed 收敛为 canPush()/canPull()（判据逐字等价）；定时复查复用已 fetch 的 drift，少一次远端请求；强杀加 1.5 秒幂等节流，避免退出钩子/定时预排/前端信标重复杀同一进程族；插件根与版本收敛到 PLUGIN_DIR/PLUGIN_VERSION 单一来源，删除 lsRemoteHeads、死导入等死代码；一致性修复——market-index 时间戳统一毫秒、前导零版本补 npmVersion、打包排除临时产物、还原流程 AppRoot 探测与实验 bundle（app.asar）识别对齐主链路、语言头改为请求时计算、callUpdate 补失败判断。 selftest/clientcheck 与 0.4.10 基线逐项一致（本环境 8 项 prepare 失败为无 origin 的既有失败，非本版引入）。",
-  "notesEn": "Equivalent refactor: the normal sync path is identical to 0.4.10 and no feature changes. pushAllowed/pullAllowed are consolidated into canPush()/canPull() (criteria word-for-word equivalent); the periodic re-check reuses the already-fetched drift, saving one remote request; force-kill gets a 1.5s idempotent throttle so the close hook / periodic pre-queue / frontend beacon do not kill the same process family repeatedly; plugin root and version consolidate to a single PLUGIN_DIR/PLUGIN_VERSION source, removing dead code (lsRemoteHeads, unused imports). Consistency fixes: market-index timestamps normalized to milliseconds, leading-zero versions gain npmVersion, packaging excludes temp artifacts, the restore flow's AppRoot detection and experimental-bundle (app.asar) recognition align with the main path, the language header is computed at request time, and callUpdate checks failures. selftest/clientcheck match the 0.4.10 baseline item by item (the 8 prepare failures here are pre-existing with no origin, not introduced by this release).",
+  "notes": "待推送判据改为内容级：只有实际内容变了才提示推送。DSH 重写 cordis.patch.yml、会话 projcache / session-index 造成的 mtime 假变更不再误报；引入内容指纹基线 + pendingKeys 防止洗白；db/sqlite ≤64MB 走全量 hash，避免同尺寸原地更新漏检；autoPush 与退出推送判据同步享受新口径。隔离审查两轮无阻断项，selftest 无新增失败。",
+  "notesEn": "Content-level pending detection: only prompt to push when content actually changed. mtime-only churn from DSH rewriting cordis.patch.yml, session projcache / session-index no longer produces false positives; a content-fingerprint baseline plus pendingKeys prevents whitewashing; db/sqlite files up to 64MB use full hashing to catch same-size in-place updates; autoPush and close-time push criteria share the same new rule. Two rounds of isolated review found no blocking issues and selftest had no new failures.",
   "minClient": "0.2.2-rc.2"
 }
