@@ -530,7 +530,7 @@ function Resolve-DshAppRoot([string]$explicit) {
 # 面板「同步内容」卡片的落点：每组一行、组内还能排除单项。文件不存在 = 全勾（老行为不变）。
 # 纪律：勾选只决定「要不要处理」——跳过就是既不抓也不还原；
 #       只有 deleteCloud 打开时才顺手删掉仓库里那份副本（默认关闭，删了就不可逆）。
-$SyncScopeGroups = @('profile', 'prompt', 'skills', 'presets', 'storages-record', 'settings', 'mnemon', 'local-plugins', 'plugin-data', 'extra', 'workspace', 'conversations')
+$SyncScopeGroups = @('profile', 'prompt', 'skills', 'presets', 'storages-record', 'settings', 'mnemon', 'local-plugins', 'plugin-data', 'extra', 'workspace', 'conversations', 'mcp-connectors')
 
 # ---------- 插件数据 / 额外路径（0.3.51 起）----------
 # 背景：以前的同步范围是白名单（十组固定清单），新装的插件如果自己往 <DshHome>\<插件名>\ 或

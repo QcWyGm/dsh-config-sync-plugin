@@ -257,15 +257,14 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### MCP connector sync fix (0.4.15)
+
+This release fixes the MCP connector sync failures caused by missing group in PowerShell runtime scripts:
+
+- **Root cause**: v0.4.14 added the MCP connector sync group, but PowerShell runtime scripts (`dsh-sync-common.ps1`, `capture.ps1`) had hardcoded group lists missing `mcp-connectors`, causing capture/apply to skip the group and fail to sync configs.
+- **Fix**: Added `mcp-connectors` to `$SyncScopeGroups` in `dsh-sync-common.ps1` and the hardcoded group list in `capture.ps1`, aligning with `index.js`'s `collectScopeGroups`.
+
 ### Add MCP connector sync support (0.4.14)
-
-This release adds sync support for connected MCP connectors:
-
-- **Synced content**: `~\.dsh\storages\mcp_connector.json` containing full configurations of connected MCP connectors (OAuth 2.0 grants, access/refresh tokens, API key bindings, server URLs and transport modes).
-- **Panel addition**: a new "MCP Connectors" group in the Sync Content panel (default checked, non-excludable), containing the single file `mcp_connector.json`.
-- **Use case**: sync authorized MCP connector configs across machines, avoiding re-authorizing OAuth or re-configuring API keys on new machines.
-
-### Fix npm fallback download sha256 mismatch (0.4.13)
 
 This release changes the "pending push" rule from a timestamp check to a content-level check, fixing false positives without altering the normal push/pull flow:
 

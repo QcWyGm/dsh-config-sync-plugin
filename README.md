@@ -277,15 +277,14 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### MCP 连接器同步修复（0.4.15）
+
+本版修复 MCP 连接器同步功能在 PowerShell 运行时脚本中缺失导致的同步失败问题：
+
+- **根因**：v0.4.14 新增了 MCP 连接器同步组，但 PowerShell 运行时脚本（`dsh-sync-common.ps1`、`capture.ps1`）的硬编码组列表未同步添加 `mcp-connectors`，导致捕获/应用时跳过该组，配置无法同步。
+- **修复**：在 `dsh-sync-common.ps1` 的 `$SyncScopeGroups` 和 `capture.ps1` 的硬编码组列表中添加 `mcp-connectors`，与 `index.js` 的 `collectScopeGroups` 保持一致。
+
 ### 新增 MCP 连接器同步支持（0.4.14）
-
-本版新增对已连接 MCP 连接器配置的同步支持：
-
-- **同步内容**：`~\.dsh\storages\mcp_connector.json`，包含已连接的 MCP 连接器完整配置（OAuth 2.0 授权信息、access token / refresh token、API Key 绑定、服务器 URL 与传输方式等）。
-- **面板新增**：同步内容面板新增「MCP 连接器」组（默认勾选、不可单独排除），包含 `mcp_connector.json` 单文件。
-- **用途**：跨机器同步已授权的 MCP 连接器配置，避免在新机器上重新授权 OAuth 或重新配置 API Key。
-
-### 修复 npm 兜底下载 sha256 校验不一致（0.4.13）
 
 本版把「待推送」从时间戳判据改为内容级判据，只修误报、不改变正常推送/拉取流程：
 

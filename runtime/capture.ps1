@@ -601,7 +601,7 @@ $Scope = Get-SyncScope $DshHome
 
 $ProfileDir = Join-Path $DshHome ("profiles\" + $ProfileName)
 if (-not $WorkspaceOnly -and -not (Test-Path -LiteralPath $ProfileDir)) { Die "找不到 profile：$ProfileDir" }
-foreach ($d in @('profile', 'prompt', 'skills', 'presets', 'local-plugins', 'storages-record', 'settings', 'mnemon', 'plugin-data', 'extra', 'workspace', 'conversations')) {
+foreach ($d in @('profile', 'prompt', 'skills', 'presets', 'local-plugins', 'storages-record', 'settings', 'mnemon', 'plugin-data', 'extra', 'workspace', 'conversations', 'mcp-connectors')) {
   $p = Join-Path $RepoRoot $d
   if (-not (Test-Path -LiteralPath $p)) { New-Item -ItemType Directory -Path $p -Force | Out-Null }
 }

@@ -1,11 +1,11 @@
 {
-  "version": "0.4.14",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.14/dsh-config-sync-plugin-0.4.14.tgz",
-  "tgzBytes": 462450,
-  "sha256": "25be8d0fcc94efa1e14255c654aea26d15025fb2c5d46aba30519867a300388c",
+  "version": "0.4.15",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.15/dsh-config-sync-plugin-0.4.15.tgz",
+  "tgzBytes": 462403,
+  "sha256": "0c708de5a645f07539b0f213f26db8569f78b7a44f3d4072342f716062a4f8f3",
   "npmSha256": "631451e23d8420f489832127a7f6e375186a7045b819561b27bcefc1d9664dcb",
   "releasedAt": "2026-11-26",
-  "notes": "新增 MCP 连接器同步支持：同步 `~\\.dsh\\storages\\mcp_connector.json`（含 OAuth 授权、API Key 等），面板新增「MCP 连接器」组，默认勾选不可排除。",
-  "notesEn": "Add MCP connector sync support: sync `~\\.dsh\\storages\\mcp_connector.json` (OAuth grants, API keys, etc.), panel adds \"MCP Connectors\" group (default checked, non-excludable).",
+  "notes": "MCP 连接器同步修复：修复 PowerShell 运行时脚本缺少 mcp-connectors 组导致的同步失败问题，已在 dsh-sync-common.ps1、capture.ps1 同步添加 mcp-connectors 组。",
+  "notesEn": "MCP connector sync fix: fixed missing mcp-connectors group in PowerShell runtime scripts (dsh-sync-common.ps1, capture.ps1) causing sync failures.",
   "minClient": "0.2.2-rc.2"
 }
