@@ -2578,6 +2578,17 @@ function npmTgzUrls(version) {
     `https://registry.npmjs.org/dsh-config-sync-plugin/-/${f}`,
   ]
 }
+
+/** 判断 URL 是否为 npm registry 源（需用 npmSha256 校验） */
+function isNpmRegistryUrl(url) {
+  const u = String(url || '')
+  return u.includes('registry.npmmirror.com') || u.includes('registry.npmjs.org')
+}
+
+/** 根据 URL 选择对应的 sha256：npm 源用 npmSha256，GitHub release 用 sha256 */
+function pickSha256ForUrl(url, githubSha256, npmSha256) {
+  return isNpmRegistryUrl(url) ? (npmSha256 || githubSha256) : githubSha256
+}
 // 兼容旧调用：返回首选 npm 兜底地址
 function npmTgzUrl(version) {
   const list = npmTgzUrls(version)
@@ -2775,16 +2786,17 @@ function updatePayload(state, settings = {}) {
  * 候选地址逐个试（raw 常常不通，反代在前面兜着），全失败时把每个源的原因汇总抛出。
  * 返回 { ok, file, size, sha256, url } 或 { ok:false, error }
  */
-async function downloadPackage({ urls, sha256, version, dshHome }) {
+async function downloadPackage({ urls, sha256, npmSha256, version, dshHome }) {
   if (typeof fetch !== 'function') return { ok: false, error: t('当前运行环境没有 fetch，无法下载更新包', 'fetch is unavailable in this runtime — cannot download the update package') }
   const dir = join(dshHome, 'update-staging')
   try { mkdirSync(dir, { recursive: true }) } catch { }
   const file = join(dir, `dsh-config-sync-plugin-${version}.tgz`)
-  const want = String(sha256 || '').toLowerCase()
   const errors = []
   for (const rawUrl of urls) {
     const url = String(rawUrl || '').trim()
     if (!url) continue
+    // 根据 URL 来源选择对应的 sha256：npm 源用 npmSha256，GitHub release 用 sha256
+    const want = String(pickSha256ForUrl(url, sha256, npmSha256) || '').toLowerCase()
     try {
       const ctrl = typeof AbortController === 'function' ? new AbortController() : null
       const timer = ctrl ? setTimeout(() => { try { ctrl.abort() } catch { } }, 120 * 1000) : null
@@ -2899,7 +2911,7 @@ async function handleUpdate(req, res, config) {
       }
       const urls = resolveTgzCandidates(remote, state.url)
       if (!urls.length) throw new Error(t('version.json 里没有给 tgz 下载地址', 'version.json gives no tgz download URL'))
-      const got = await downloadPackage({ urls, sha256: String(remote.sha256 || ''), version: String(remote.version), dshHome })
+      const got = await downloadPackage({ urls, sha256: String(remote.sha256 || ''), npmSha256: String(remote.npmSha256 || ''), version: String(remote.version), dshHome })
       if (!got.ok) throw new Error(String(got.error || t('下载失败', 'download failed')))
       updateState.prepared = {
         version: String(remote.version),

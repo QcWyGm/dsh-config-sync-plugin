@@ -257,6 +257,13 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Fix npm fallback download sha256 mismatch (0.4.13)
+
+This release fixes the npm fallback download failures introduced in v0.4.12:
+
+- **Root cause**: `version.json` only recorded the GitHub release asset's sha256, but npm tarballs (npmmirror + official registry) are different build artifacts with different hashes. When GitHub release was unreachable and the download fell back to npm, it still used the GitHub sha256 for verification, causing all fallback downloads to fail.
+- **Fix**: `version.json` adds an `npmSha256` field recording the npm tarball hash; download logic adds `isNpmRegistryUrl()` and `pickSha256ForUrl()` to automatically pick the correct hash by URL source (GitHub release uses `sha256`, npm registry uses `npmSha256`). GitHub release unreachable cases now correctly fall back to npm and pass verification.
+
 ### Content-level pending detection: only prompt to push when content actually changed (0.4.12)
 
 This release changes the "pending push" rule from a timestamp check to a content-level check, fixing false positives without altering the normal push/pull flow:

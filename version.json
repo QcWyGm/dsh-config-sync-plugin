@@ -1,10 +1,11 @@
 {
-  "version": "0.4.12",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.12/dsh-config-sync-plugin-0.4.12.tgz",
-  "tgzBytes": 461532,
-  "sha256": "10d7438bf31e09cd0de9939f70e8e36c428d6597b34ee82fea9439e643b43dbf",
+  "version": "0.4.13",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.13/dsh-config-sync-plugin-0.4.13.tgz",
+  "tgzBytes": 461729,
+  "sha256": "d7089a75bfdfafadc217671bb819e3bc62aadffa029541d8497dfb88d496dd8b",
+  "npmSha256": "4b99a316ac1d6c40e6559f736380a2cf93471b9a16b1467bb33f8201f394c684",
   "releasedAt": "2026-11-26",
-  "notes": "待推送判据改为内容级：只有实际内容变了才提示推送。DSH 重写 cordis.patch.yml、会话 projcache / session-index 造成的 mtime 假变更不再误报；引入内容指纹基线 + pendingKeys 防止洗白；db/sqlite ≤64MB 走全量 hash，避免同尺寸原地更新漏检；autoPush 与退出推送判据同步享受新口径。隔离审查两轮无阻断项，selftest 无新增失败。",
-  "notesEn": "Content-level pending detection: only prompt to push when content actually changed. mtime-only churn from DSH rewriting cordis.patch.yml, session projcache / session-index no longer produces false positives; a content-fingerprint baseline plus pendingKeys prevents whitewashing; db/sqlite files up to 64MB use full hashing to catch same-size in-place updates; autoPush and close-time push criteria share the same new rule. Two rounds of isolated review found no blocking issues and selftest had no new failures.",
+  "notes": "修复 npm 兜底下载 sha256 校验不一致：version.json 新增 npmSha256 字段，下载逻辑按 URL 来源选对应哈希（GitHub release 用 sha256、npm registry 用 npmSha256）。兼容 GitHub release 不通时走 npm 兜底。此前 v0.4.12 的 npm tarball 哈希与 GitHub asset 不同导致兜底下载全部失败。",
+  "notesEn": "Fix npm fallback download sha256 mismatch: version.json adds npmSha256 field; download logic picks sha256 by URL source (GitHub release uses sha256, npm registry uses npmSha256). Works when GitHub release is unreachable and falls back to npm. Previously v0.4.12 npm tarball hash differed from GitHub asset causing all fallback downloads to fail.",
   "minClient": "0.2.2-rc.2"
 }

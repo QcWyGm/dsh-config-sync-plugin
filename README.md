@@ -277,6 +277,13 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 修复 npm 兜底下载 sha256 校验不一致（0.4.13）
+
+本版解决 v0.4.12 引入的 npm 兜底下载全部失败问题：
+
+- **根因**：`version.json` 只记录 GitHub release asset 的 sha256，但 npm tarball（npmmirror + 官方 registry）打包产物不同，哈希不一致。GitHub release 不通时回退到 npm，仍用 GitHub 的 sha256 校验，导致全部失败。
+- **修复**：`version.json` 新增 `npmSha256` 字段记录 npm tarball 哈希；下载逻辑新增 `isNpmRegistryUrl()` 与 `pickSha256ForUrl()`，按 URL 来源自动选对应哈希（GitHub release 用 `sha256`、npm registry 用 `npmSha256`）。GitHub release 不通时可正常走 npm 兜底下载并通过校验。
+
 ### 待推送判据改为内容级：实际内容变了才提示推送（0.4.12）
 
 本版把「待推送」从时间戳判据改为内容级判据，只修误报、不改变正常推送/拉取流程：
