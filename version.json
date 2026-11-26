@@ -1,9 +1,9 @@
 {
   "version": "0.4.13",
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.13/dsh-config-sync-plugin-0.4.13.tgz",
-  "tgzBytes": 461729,
-  "sha256": "d7089a75bfdfafadc217671bb819e3bc62aadffa029541d8497dfb88d496dd8b",
-  "npmSha256": "4b99a316ac1d6c40e6559f736380a2cf93471b9a16b1467bb33f8201f394c684",
+  "tgzBytes": 462228,
+  "sha256": "e70b9bc84053693a57abc65458e85ea82ee95b7fac721b1fe24607fadc37f7ca",
+  "npmSha256": "631451e23d8420f489832127a7f6e375186a7045b819561b27bcefc1d9664dcb",
   "releasedAt": "2026-11-26",
   "notes": "修复 npm 兜底下载 sha256 校验不一致：version.json 新增 npmSha256 字段，下载逻辑按 URL 来源选对应哈希（GitHub release 用 sha256、npm registry 用 npmSha256）。兼容 GitHub release 不通时走 npm 兜底。此前 v0.4.12 的 npm tarball 哈希与 GitHub asset 不同导致兜底下载全部失败。",
   "notesEn": "Fix npm fallback download sha256 mismatch: version.json adds npmSha256 field; download logic picks sha256 by URL source (GitHub release uses sha256, npm registry uses npmSha256). Works when GitHub release is unreachable and falls back to npm. Previously v0.4.12 npm tarball hash differed from GitHub asset causing all fallback downloads to fail.",
