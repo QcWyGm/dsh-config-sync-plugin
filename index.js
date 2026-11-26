@@ -2792,11 +2792,11 @@ async function downloadPackage({ urls, sha256, npmSha256, version, dshHome }) {
   try { mkdirSync(dir, { recursive: true }) } catch { }
   const file = join(dir, `dsh-config-sync-plugin-${version}.tgz`)
   const errors = []
+  // 两个已知合法 sha256，允许任一匹配即通过（兼容 URL 分类边界、重定向等极端情况）
+  const validSha256 = new Set([String(sha256 || '').toLowerCase(), String(npmSha256 || '').toLowerCase()].filter(Boolean))
   for (const rawUrl of urls) {
     const url = String(rawUrl || '').trim()
     if (!url) continue
-    // 根据 URL 来源选择对应的 sha256：npm 源用 npmSha256，GitHub release 用 sha256
-    const want = String(pickSha256ForUrl(url, sha256, npmSha256) || '').toLowerCase()
     try {
       const ctrl = typeof AbortController === 'function' ? new AbortController() : null
       const timer = ctrl ? setTimeout(() => { try { ctrl.abort() } catch { } }, 120 * 1000) : null
@@ -2810,7 +2810,8 @@ async function downloadPackage({ urls, sha256, npmSha256, version, dshHome }) {
       const buf = Buffer.from(await res.arrayBuffer())
       if (!buf.length) throw new Error(t('下载到的文件是空的', 'the downloaded file is empty'))
       const hash = createHash('sha256').update(buf).digest('hex')
-      if (want && hash !== want) throw new Error(t(`sha256 不一致（拿到 ${hash}）`, `sha256 mismatch (got ${hash})`))
+      // 只要命中任一合法 sha256 即通过（兼容 URL 分类/重定向边界情况）
+      if (validSha256.size && !validSha256.has(hash)) throw new Error(t(`sha256 不一致（拿到 ${hash}，合法值：${[...validSha256].join('、')}）`, `sha256 mismatch (got ${hash}, valid: ${[...validSha256].join(', ')})`))
       writeFileSync(file, buf)
       return { ok: true, file, size: buf.length, sha256: hash, url }
     } catch (error) {
@@ -3377,6 +3378,14 @@ function collectScopeGroups(dshHome, appRoot) {
   groups.push({ id: 'settings', titleZh: '插件设置与工作流', titleEn: 'Plugin settings & workflows',
     descZh: '免付费模型设置、ComfyUI 工作流库、桌宠配置、插件市场状态', descEn: 'Free-model settings, ComfyUI workflows, desktop-pet config, market state',
     items: settingsFiles.map((x) => ({ id: x.id, label: x.id })) })
+
+  // MCP 连接器配置
+  const mcpConnectorFile = join(dshHome, 'storages', 'mcp_connector.json')
+  if (existsSync(mcpConnectorFile)) {
+    groups.push({ id: 'mcp-connectors', titleZh: 'MCP 连接器', titleEn: 'MCP Connectors',
+      descZh: '已连接的 MCP 连接器配置（含 OAuth 授权、API Key 等）', descEn: 'Connected MCP connector configurations (OAuth grants, API keys, etc.)',
+      items: [{ id: 'mcp_connector.json', label: 'mcp_connector.json', excludable: false }] })
+  }
 
   const mnemonDir = appRoot ? join(appRoot, 'mnemon') : ''
   const mnemonCount = mnemonDir && existsSync(mnemonDir) ? countEntries(mnemonDir) : 0
