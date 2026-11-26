@@ -708,6 +708,23 @@ foreach ($dirName in @('dsh-our-free-model-2.8.0', 'dsh-purge-1.1.92')) {
   $pattern = 'link:[^"]*' + [regex]::Escape($dirName)
   $pkgRaw = [regex]::Replace($pkgRaw, $pattern, ('link:' + $AppRootToken + '/' + $dirName), 'IgnoreCase')
 }
+# dsh-config-sync-plugin 已发布到 npm。本机开发用 link: 指本地源码目录，但那个目录只在主力机存在；
+# 若把 link:{{APP_ROOT}}/dsh-config-sync-plugin-xxx 同步进仓库，目标机 AppRoot 下没有该目录、
+# local-plugins 也无对应归档 → pnpm 装不上 → bundle "dsh-config-sync-plugin" 解析失败、DSH 起不来。
+# 所以入库存成 npm 版本（读本机已装插件的真实版本），目标机 apply 后 pnpm 从 registry 安装。
+$cssVer = $null
+$cssPkgLocal = Join-Path $ProfileDir 'node_modules\dsh-config-sync-plugin\package.json'
+if (Test-Path -LiteralPath $cssPkgLocal) {
+  try {
+    $cssTxt = [IO.File]::ReadAllText($cssPkgLocal)
+    if ($cssTxt.Length -gt 0 -and $cssTxt[0] -eq [char]0xFEFF) { $cssTxt = $cssTxt.Substring(1) }
+    $cssVer = [string](($cssTxt | ConvertFrom-Json).version)
+    if ($cssVer) {
+      $pkgRaw = [regex]::Replace($pkgRaw, '"dsh-config-sync-plugin"\s*:\s*"link:[^"]*"', ('"dsh-config-sync-plugin": "' + $cssVer + '"'))
+      Ok "profile\package.json：dsh-config-sync-plugin 依赖归一为 npm 版本 $cssVer（不再写 link:）"
+    }
+  } catch { Warn "读不到本机 dsh-config-sync-plugin 版本，保留原 link 写法：$($_.Exception.Message)" }
+}
 if ($pkgRaw) {
   $norm = $pkgRaw -replace "`r`n", "`n"
   $dst = Join-Path $RepoRoot 'profile\package.json'

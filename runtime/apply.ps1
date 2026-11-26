@@ -905,6 +905,13 @@ foreach ($f in @('cordis.yml', 'cordis.patch.yml', 'pnpm-workspace.yaml', 'pnpm-
   if ($raw.Contains($AppRootToken) -or $raw.Contains($WorkspaceHomeToken)) {
     Die "展开占位符失败：$f 里仍有 {{APP_ROOT}}/{{WORKSPACE_HOME}}（-AppRoot=$AppRoot）"
   }
+  # 老仓库的 pnpm-lock.yaml 里 dsh-config-sync-plugin 是 link: 写法，与改成 npm 版本的 package.json
+  # 对不上会让 --frozen-lockfile 必失败。这里一并改写成 npm 版本，frozen 直接通过。
+  if ($f -eq 'pnpm-lock.yaml' -and $raw -match 'dsh-config-sync-plugin:[\s\S]{0,200}link:') {
+    $raw = [regex]::Replace($raw, '(dsh-config-sync-plugin:\s*\r?\n\s*specifier:\s*)link:[^\r\n]*', '${1}0.4.15')
+    $raw = [regex]::Replace($raw, '(dsh-config-sync-plugin:\s*\r?\n\s*specifier:[^\r\n]*\r?\n\s*version:\s*)link:[^\r\n]*', '${1}0.4.15')
+    Warn 'pnpm-lock.yaml 里 dsh-config-sync-plugin 的 link: 写法已改写为 npm 版本 0.4.15（与 package.json 对齐）'
+  }
   Write-TextPreserveBom (Join-Path $ProfileDir $f) $raw
 }
 Ok "已写入 cordis.yml / cordis.patch.yml / pnpm-workspace.yaml / pnpm-lock.yaml（路径指向 $appRootFwd）"
@@ -983,6 +990,15 @@ $localPluginMap = [ordered]@{
 foreach ($dirName in $localPluginMap.Keys) {
   $pattern = 'link:[^"]*' + [regex]::Escape($dirName)
   $pkgRaw = [regex]::Replace($pkgRaw, $pattern, ('link:' + $appRootFwd + '/' + $dirName), 'IgnoreCase')
+}
+# 兜底：老仓库里 dsh-config-sync-plugin 还是 link:{{APP_ROOT}}/dsh-config-sync-plugin-xxx，
+# 目标机 AppRoot 下没有那个源码目录 → pnpm 装不上 → bundle "dsh-config-sync-plugin" 解析失败。
+# 该插件已发布到 npm，统一改写成 npm 版本依赖（用仓库契约/已装版本，缺省 0.4.15），
+# 让 pnpm install 从 registry 安装。新仓库 capture 已直接写 npm 版本，这里只兜底老仓库。
+if ($pkgRaw -match '"dsh-config-sync-plugin"\s*:\s*"link:') {
+  $cssFallback = '0.4.15'
+  $pkgRaw = [regex]::Replace($pkgRaw, '"dsh-config-sync-plugin"\s*:\s*"link:[^"]*"', ('"dsh-config-sync-plugin": "' + $cssFallback + '"'))
+  Warn "package.json 里 dsh-config-sync-plugin 是 link: 开发依赖，已改写为 npm 版本 $cssFallback（本地源码目录在目标机不存在，必须走 npm 安装）"
 }
 Write-TextPreserveBom (Join-Path $ProfileDir 'package.json') $pkgRaw
 Ok "已写入 package.json（link 路径指向 $appRootFwd）"

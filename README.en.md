@@ -257,6 +257,13 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Fix cross-machine pull bundle resolution failure (0.4.16)
+
+This release fixes `cannot resolve profile bundle "dsh-config-sync-plugin"` on the target machine after pulling config:
+
+- **Root cause**: locally `dsh-config-sync-plugin` is a `link:` dev dependency; capture wrote `link:{{APP_ROOT}}/dsh-config-sync-plugin-xxx` into the repo. The target machine has no such source dir and no matching archive in `local-plugins`, so pnpm install fails and bundle resolution fails at startup.
+- **Fix**: capture normalizes the link dependency to an npm version (reads the installed plugin's real version); apply backfills leftover `link:` in old repos (both package.json and pnpm-lock.yaml), so pnpm install works from registry and DSH starts normally.
+
 ### MCP connector sync fix (0.4.15)
 
 This release fixes the MCP connector sync failures caused by missing group in PowerShell runtime scripts:

@@ -277,6 +277,13 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 修复跨机器拉取后 bundle 解析失败（0.4.16）
+
+本版修复目标机器拉取配置后 DSH 启动报 `cannot resolve profile bundle "dsh-config-sync-plugin"` 的问题：
+
+- **根因**：本机开发时 `dsh-config-sync-plugin` 是 `link:` 本地源码依赖，capture 把 `link:{{APP_ROOT}}/dsh-config-sync-plugin-xxx` 写进仓库；目标机 AppRoot 下没有该源码目录、`local-plugins` 也无对应归档，pnpm install 装不上，启动期 bundle 解析失败。
+- **修复**：capture 把该 link 依赖归一为 npm 版本（读本机已装插件真实版本），apply 兜底改写老仓库残留的 `link:`（package.json 与 pnpm-lock.yaml 同步），目标机 pnpm install 直接从 registry 安装，DSH 正常启动。
+
 ### MCP 连接器同步修复（0.4.15）
 
 本版修复 MCP 连接器同步功能在 PowerShell 运行时脚本中缺失导致的同步失败问题：
