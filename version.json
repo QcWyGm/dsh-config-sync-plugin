@@ -3,7 +3,7 @@
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.22/dsh-config-sync-plugin-0.4.22.tgz",
   "tgzBytes": 481227,
   "sha256": "7b1b89942d9de7e37c1d14e93cfcc7ecde2d71b89b21a991f833dc1a95cb4765",
-  "npmSha256": "79ed853abc8e22bd59f42396f2d6d667e6d250894df3e654a3f0efa027f2612b",
+  "npmSha256": "798c780faec10329f6906ee1a70e93a8b775e94aeb720db0bc6b7538fda2a3bb",
   "releasedAt": "2026-11-28",
   "notes": "跨机隐藏对齐：Mnemon 后台会话（id 前缀 mnemon-*）与子代理会话（纯 uuid id）会随登记表同步带到另一台机器，DSH 对同步来的会话不一定落在视图折叠边界内，工作台会列出「MnemonSkills 会话」和「未命名会话」。拉取时现在把这两类会话 id 并进 global.archivedSessionIds（DSH 原生隐藏通道）：会话体照常同步保留，但工作台列表/搜索/打开全链路不再显示；主会话（session- 前缀）不受影响，本机手动隐藏/归档的会话照常保留。",
   "notesEn": "Cross-machine hide alignment: Mnemon background sessions (id prefix mnemon-*) and subagent sessions (bare uuid ids) ride along the registry sync and would show up on the other machine as \"MnemonSkills sessions\" and \"untitled sessions\" whenever the synced sessions fall outside DSH view-collapse boundaries. Pull now merges these session ids into global.archivedSessionIds (the native DSH hide channel): session bodies still sync and are kept, but the workspace workbench no longer lists or opens them; main sessions (session- prefix) are untouched and locally hidden/archived sessions are preserved.",
