@@ -3,7 +3,7 @@
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.20/dsh-config-sync-plugin-0.4.20.tgz",
   "tgzBytes": 478270,
   "sha256": "69a21b6cb29a61a803f1d6de7d93b7eab12e40d8e15a86b8878b822aff722c14",
-  "npmSha256": "PENDING_NPM",
+  "npmSha256": "5156e9e2aaa07403322d99532c8ad67a525d3d6f",
   "releasedAt": "2026-11-27",
   "notes": "0.4.19 拉取崩溃修复：①Test-PullLanding 报告文案里 int+字符串直接拼接（$bad + \" 个会话投影缓存…\"）在 StrictMode 下抛终止错误「无法将值…转换为 System.Int32」，导致 sync pull 退出 1、post-exit 按失败自动回滚——刚落地的会话/工作区被整段回滚，表现为「拉取成功但工作区和会话是空的」；全部改用 -f 格式化（apply/capture/post-exit/restore 共 14 处，其余 int 邻接拼接逐一核对）；②restore 落地清单/manifest 拼接同源加固。 upgrading from 0.4.19 的机器重新拉取即可，已被回滚的数据会随本次 pull 重新落地。",
   "notesEn": "Fix for the 0.4.19 pull crash: (1) Test-PullLanding report strings concatenated an int with text ($bad + \" sessions still contain placeholders\"), which throws a terminating error under StrictMode (cannot convert value to System.Int32) — sync pull then exits 1 and post-exit auto-rolls back, undoing the sessions/workspaces that had just landed (the \"pull succeeded but workspace and sessions are empty\" symptom). All such concatenations now use -f formatting (14 spots across apply/capture/post-exit/restore, remaining int-adjacent joins audited); (2) restore landing lists/manifest joins hardened the same way. Machines upgrading from 0.4.19 just re-pull; data rolled back earlier lands again with this pull.",
