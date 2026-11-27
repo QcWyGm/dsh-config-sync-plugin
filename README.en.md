@@ -257,6 +257,18 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### One-way contract adoption + landing hardening (0.4.19)
+
+This release fixes five classes of issues found in the full-code audit:
+
+- **Contract no longer frozen**: the old "any mismatch keeps the old contract" rule froze `host-contract.json` forever once the app auto-upgraded (stuck on rc.2). Now semver one-way adoption: a newer local machine upgrades the contract; an older one keeps it (anti-downgrade preserved).
+- **Init contract read the wrong version**: on packaged (app.asar) machines, the fallback chain wrote the Electron framework version (e.g. 44.7.0) as appVersion. It now reuses `Get-HostAppVersion` (asar-aware), so any build shape writes the real app version.
+- **Four hard-coded versions removed**: lock fallback, `$cssFallback`, landing probe list, and the 23-entry link directory map are now derived at runtime from the repo `package.json`; releases no longer need manual sync in four places, and `--frozen-lockfile` no longer fails on version drift.
+- **Check the cloud before pushing**: capture's mirror-delete assumes "missing locally = delete in repo"; pushing without pulling first silently deleted the other machine's unique files (sessions/attachments are unrecoverable). Push now fetches and stops when behind>0 (-Force overrides).
+- **WorkspaceOnly race closed**: the branch wrote workspace.json/session first frames/bili DB while DSH ran. The process check now runs before that branch.
+
+Also: `git add -A` now goes through cmd forwarding (no NativeCommandError under EAP=Stop); push failure classification adds non-fast-forward ("pull first" guidance); capture cwd normalization uses `Get-HostNodeRunner` (no more `& $null` crash) and `$PID` temp names; notices byKind counts `landing`; panel AutoCard uses callAuto; required-group item checkboxes are disabled in the scope card (they were dead switches).
+
 ### Fix over-strict pull preflight (0.4.18)
 
 This release fixes the 0.4.17 preflight false-failure that rolled back pulls on the target machine:

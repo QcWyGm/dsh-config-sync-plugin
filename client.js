@@ -1830,6 +1830,13 @@ window.__ModuleLoader__.load({
       }
       const toggleItem = (gid, iid) => {
         if (!state || !editing) return
+        const g0 = state.groups.find((x) => x.id === gid)
+        // 0.4.19：必需组的单项勾选是死开关——ps1 侧 Test-SyncItemEnabled 对必需组恒真，
+        // 勾了也不生效，还让用户误以为排除了。直接不让点，并提示为什么。
+        if (g0 && g0.required === true) {
+          setMsg(M('必需组（工作区/会话/profile）的单项不参与排除，始终同步', 'Items in required groups are always synced and cannot be excluded'))
+          return
+        }
         setState({
           ...state,
           groups: state.groups.map((g) => (g.id === gid
@@ -1943,12 +1950,15 @@ window.__ModuleLoader__.load({
                   items.map((i) => h('label', {
                     style: {
                       display: 'flex', gap: '8px', alignItems: 'center', fontSize: '12px',
-                      cursor: editing ? 'pointer' : 'default', opacity: groupOn ? 1 : 0.6,
+                      cursor: editing && g.required !== true ? 'pointer' : 'default', opacity: groupOn ? 1 : 0.6,
                     },
                   },
                     h('input', {
-                      type: 'checkbox', checked: i.enabled !== false, disabled: busy || !editing,
-                      title: editing ? '' : M('只读：先点「修改」', 'Read-only: click Edit first'),
+                      type: 'checkbox', checked: i.enabled !== false,
+                      disabled: busy || !editing || g.required === true,
+                      title: g.required === true
+                        ? M('必需组内容始终同步', 'Required groups are always synced')
+                        : (editing ? '' : M('只读：先点「修改」', 'Read-only: click Edit first')),
                       onChange: () => toggleItem(g.id, i.id), style: { flexShrink: 0 },
                     }),
                     h('span', { style: { wordBreak: 'break-all' } }, i.label),
@@ -1998,14 +2008,8 @@ window.__ModuleLoader__.load({
       const act = async (action, extra) => {
         setBusy(action); setErr(''); setMsg('')
         try {
-          const res = await fetch('/config-sync/auto', {
-            method: 'POST', cache: 'no-store', credentials: 'same-origin',
-            headers: jsonHeaders(),
-            body: JSON.stringify({ action, ...(extra || {}) }),
-          })
-          const text = await res.text()
-          const body = text ? JSON.parse(text) : null
-          if (!res.ok || !body || body.ok !== true) throw new Error((body && body.error) || `${res.status}`)
+          // 0.4.19：统一走 callAuto（带 JSON 解析守卫），旧裸 fetch 遇坏响应把 SyntaxError 原样抛进 UI
+          const body = await callAuto({ action, ...(extra || {}) })
           if (action === 'check') {
             const d = body.drift
             setMsg(d

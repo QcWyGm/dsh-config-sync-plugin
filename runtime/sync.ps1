@@ -694,22 +694,20 @@ function Initialize-EmptyRepo([string]$RemoteUrl) {
 
   $contractPath = Join-Path $RepoRoot 'profile\host-contract.json'
   if (-not (Test-Path -LiteralPath $contractPath)) {
-    $ver = ''
-    $pkg = Join-Path $AppRoot 'resources\app\package.json'
-    if (Test-Path -LiteralPath $pkg) {
-      try { $ver = [string](Get-Content -LiteralPath $pkg -Raw -Encoding utf8 | ConvertFrom-Json).version } catch { }
-    }
-    if (-not $ver) {
-      $vf = Join-Path $AppRoot 'version'
-      if (Test-Path -LiteralPath $vf) { $ver = (Get-Content -LiteralPath $vf -Raw -Encoding utf8).Trim() }
-    }
+    # 0.4.19：复用 Get-HostAppVersion（dsh-sync-common.ps1），它的读取链是
+    #   resources\app\package.json → app.asar 内 dsh/package.json（asar 手工解析）。
+    # 旧回退链在打包版下读不到 resources\app\，兜底去读 <AppRoot>\version——那是 electron-builder
+    #   写的 Electron 框架版本（如 44.7.0），被当 appVersion 写进契约后，capture 的防降级
+    #   策略会把它永久冻住，另一台 apply 的实验 bundle 门控就对着一个假版本判断。
+    $ver = Get-HostAppVersion $AppRoot
     if ($ver) {
       $dir = Join-Path $RepoRoot 'profile'
       if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
       $obj = [ordered]@{
-        appVersion  = $ver
-        generatedAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-        note        = '由 dsh-config-sync 首次推送生成（客户端版本契约）'
+        appVersion      = $ver
+        electronVersion = Get-HostElectronVersion $AppRoot
+        generatedAt     = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        note            = '由 dsh-config-sync 首次推送生成（客户端版本契约）'
       }
       [IO.File]::WriteAllText($contractPath, ($obj | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding $false))
       Ok "已写入版本契约：$ver"
@@ -834,6 +832,28 @@ if ($Action -eq 'push') {
     Warn "建议完全退出（含托盘）后重跑；确认要继续可加 -Force"
     Die "已停止（未抓取、未提交）。"
   }
+  # 0.4.19：推送前先把云端最新历史取下来核对——capture 的镜像删除以「本机没有 = 删仓库」为准，
+  # 若另一台机器刚推过而本机没拉，未取下的快进合并会把对方独有的文件（尤其会话/附件这类
+  # 不可再生数据）从仓库里删掉。这里取完发现云端领先就停，让用户先拉取；-Force 可显式越过。
+  $behindCheck = $null
+  if ($hasGit -and $hasCommit) {
+    $fetchOut = (& "$env:ComSpec" /c ('"' + $git + '" -C "' + $RepoRoot + '" fetch origin --prune 2>&1') | Out-String)
+    if ($LASTEXITCODE -eq 0) {
+      $upstreamProbe = (Get-GitText 'rev-parse --abbrev-ref --symbolic-full-name "@{upstream}"')
+      if ($upstreamProbe.Code -eq 0 -and $upstreamProbe.Text) {
+        $cnt = (Get-GitText ('rev-list --count HEAD..' + $upstreamProbe.Text))
+        if ($cnt.Code -eq 0 -and $cnt.Text) { $behindCheck = 0; [void][int]::TryParse($cnt.Text, [ref]$behindCheck) }
+      }
+    } else {
+      Warn "推送前 fetch 失败（网络/地址问题）：继续按无更新处理，但若另一台机器刚推过，本次镜像删除可能覆盖它的改动"
+    }
+  }
+  if ($behindCheck -gt 0 -and -not $Force) {
+    Warn ("云端比本机领先 {0} 个提交：先拉取（pwsh -File sync.ps1 pull），否则 capture 的镜像删除会把云端独有的文件从仓库删掉。" -f $behindCheck)
+    Die "已停止（未抓取、未提交、未推送）。确认要覆盖云端请加 -Force。"
+  } elseif ($behindCheck -gt 0) {
+    Warn ("云端比本机领先 {0} 个提交（-Force 已越过检查）：镜像删除可能清掉云端独有文件，会话/附件不可再生，请确认。" -f $behindCheck)
+  }
   $captureArgs = @{ RepoRoot = $RepoRoot; DshHome = $DshHome; ProfileName = $ProfileName; AppRoot = $AppRoot; WorkspaceHome = $WorkspaceHome; NoResetNotices = $true }
   if ($WorkspaceOnly) { $captureArgs['WorkspaceOnly'] = $true }
   if ($SkipWorkspace) { $captureArgs['SkipWorkspace'] = $true }
@@ -844,7 +864,10 @@ if ($Action -eq 'push') {
   Say ""
   Say "== 提交 =="
   Initialize-CommitIdentity
-  & $git -C $RepoRoot add -A
+  # 0.4.19：与 push 同款 cmd 转发。本脚本 ErrorActionPreference=Stop，git add 偶尔往 stderr 写
+  # advice/告警时会被包成 NativeCommandError 直接中断——且发生在 add 之后 commit 之前，索引留半截。
+  & "$env:ComSpec" /c ('"' + $git + '" -C "' + $RepoRoot + '" add -A 2>&1') | Out-Null
+  if ($LASTEXITCODE -ne 0) { Die ("git add -A 失败（退出码 {0}）：索引/文件系统可能异常（如 .git/index.lock）。" -f $LASTEXITCODE) }
   # 走 Read-GitLines：中文目录名若被 quotepath 转义成 "…\347\240\264…"，连引号一起拿进
   # Test-Path -LiteralPath 就是「路径中具有非法字符」，整次同步会在这里挂掉
   $pending = @((Read-GitLines 'diff --cached --name-only').Lines)
@@ -1015,6 +1038,9 @@ if ($Action -eq 'push') {
     $quotaHit = [bool]($pushOut -match 'exceeds .*quota|repository size|total repository size|仓库容量|容量上限')
     $networkHit = [bool]($pushOut -match 'Could not read from remote|Permission denied|publickey|Host key verification|Could not resolve host|timed out|Connection refused|Operation timed out')
     $rejectedHit = [bool]($pushOut -match '\[remote rejected\]|pre-receive hook declined')
+    # 0.4.19：普通推送被拒（远端领先/分支保护）单独分类——双机竞态下最常见的失败，
+    # 旧版落进兜底「既不是文件超限也不是已知网络特征」，排查体验差。
+    $nonFastForwardHit = [bool]($pushOut -match 'non-fast-forward|fetch first|\[rejected\]')
 
     if ($remoteOversized.Count -gt 0 -or $histTooLarge.Count -gt 0) {
       # 有具体文件名（远端报的）或历史预检命中：这是「文件超限」，不是网络
@@ -1037,6 +1063,10 @@ if ($Action -eq 'push') {
     if ($rejectedHit) {
       Die ("git push 被远端拒绝（remote rejected / pre-receive hook declined），原因见上面 remote: 那几行。" +
            "`n      改动已提交在本地，处理完远端限制后重跑 git -C `"$RepoRoot`" push 即可。")
+    }
+    if ($nonFastForwardHit) {
+      Die ("git push 被拒：远端比本机领先（non-fast-forward），多半是另一台机器刚推送过。" +
+           "`n      处理：先执行拉取 pwsh -File `"$RepoRoot\sync.ps1`" pull（有分叉时按面板「同步冲突」处理），再重新推送。")
     }
     if ($networkHit) {
       Die "git push 失败（网络/认证）。改动已提交在本地，修好网络后重跑：git -C `"$RepoRoot`" push；若是 GIT_SSH_COMMAND 问题，先确认它第一个词是 ssh.exe 本体"

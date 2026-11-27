@@ -60,7 +60,7 @@ function Save-SyncNotices {
     $dir = Split-Path -Parent $p
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $byKind = [ordered]@{}
-    foreach ($k in @('too-large', 'history', 'skipped', 'failed', 'plugin-missing', 'context-state')) {
+    foreach ($k in @('too-large', 'history', 'skipped', 'failed', 'plugin-missing', 'context-state', 'landing')) {
       $byKind[$k] = @($script:SyncNoticeItems | Where-Object { $_.kind -eq $k }).Count
     }
     $obj = [ordered]@{
@@ -468,6 +468,58 @@ function Get-HostElectronVersion([string]$appRoot) {
   $p = Join-Path $appRoot 'version'
   if (-not (Test-Path -LiteralPath $p)) { return $null }
   return (Read-TextPreserveBom $p).Trim()
+}
+
+<#
+  semver 比较（0.4.19 新增，供 capture 契约单向采纳 / sync 契约生成共用）：
+  返回 1 = a 更新，-1 = b 更新，0 = 相等。b 更新但解析失败时返回 0（当作「无法比较」），
+  调用方对 0 一律按「保持现状」处理，保证旧机器永远拉不低契约。
+  支持数字段 + 预发布段（0.2.2-rc.5 > 0.2.2-rc.2 > 0.2.2）；不含构建段（+build 忽略）。
+#>
+function Compare-Semver([string]$a, [string]$b) {
+  $a = ('' + $a).Trim(); $b = ('' + $b).Trim()
+  if ($a -ceq $b) { return 0 }
+  $parse = {
+    param([string]$v)
+    if ($v -notmatch '^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.\-]+))?$') { return $null }
+    $pre = $null
+    if ($Matches[4]) { $pre = $Matches[4] -split '\.' }
+    return [pscustomobject]@{
+      Major = [long]$Matches[1]; Minor = [long]$Matches[2]; Patch = [long]$Matches[3]; Pre = $pre
+    }
+  }
+  $pa = & $parse $a
+  $pb = & $parse $b
+  if (-not $pa -or -not $pb) { return 0 }
+  foreach ($f in @('Major', 'Minor', 'Patch')) {
+    if ($pa.$f -gt $pb.$f) { return 1 }
+    if ($pa.$f -lt $pb.$f) { return -1 }
+  }
+  # 主版本段相等：无预发布 > 有预发布（semver 规则 11）
+  if (-not $pa.Pre -and -not $pb.Pre) { return 0 }
+  if (-not $pa.Pre) { return 1 }
+  if (-not $pb.Pre) { return -1 }
+  $n = [Math]::Min($pa.Pre.Count, $pb.Pre.Count)
+  for ($i = 0; $i -lt $n; $i++) {
+    $x = $pa.Pre[$i]; $y = $pb.Pre[$i]
+    if ($x -ceq $y) { continue }
+    $xn = 0L; $yn = 0L
+    $xIsNum = [long]::TryParse($x, [ref]$xn)
+    $yIsNum = [long]::TryParse($y, [ref]$yn)
+    if ($xIsNum -and $yIsNum) {
+      if ($xn -gt $yn) { return 1 }
+      if ($xn -lt $yn) { return -1 }
+      continue
+    }
+    # 数字段 < 文本段（semver 规则 12）
+    if ($xIsNum) { return -1 }
+    if ($yIsNum) { return 1 }
+    $c = [string]::CompareOrdinal($x, $y)
+    if ($c -ne 0) { return [Math]::Sign($c) }
+  }
+  if ($pa.Pre.Count -gt $pb.Pre.Count) { return 1 }
+  if ($pa.Pre.Count -lt $pb.Pre.Count) { return -1 }
+  return 0
 }
 
 # ---------- 客户端根（AppRoot）自动定位 ----------

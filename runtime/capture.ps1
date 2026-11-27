@@ -564,16 +564,31 @@ function Sync-ConversationCapture {
   #    对不上工作区的 passthrough 目录不动（那种目录在 B 机本来也认不出）。
   if ($cwdToken.Count -gt 0) {
     $spec = [ordered]@{ home = $convDir; dirs = $cwdToken } | ConvertTo-Json -Depth 4 -Compress
-    $specPath = Join-Path ([IO.Path]::GetTempPath()) ('dsh-repo-cwd-{0}.json' -f $stamp)
+    # 0.4.19：临时文件名带 $PID——旧版引用了一个未赋值的 $stamp，所有进程都撞同一个
+    # dsh-repo-cwd-.json，两次并发 capture 会互相覆盖 spec/结果文件。
+    $specPath = Join-Path ([IO.Path]::GetTempPath()) ('dsh-repo-cwd-' + $PID + '.json')
     [IO.File]::WriteAllText($specPath, $spec, (New-Object Text.UTF8Encoding($false)))
     # 辅助脚本优先用「脚本自己旁边」的那份（仓库可能是个刚 clone 下来、还没铺 tools 的副本）
     $helper = Join-Path $PSScriptRoot 'tools\fix-session-cwd.mjs'
     if (-not (Test-Path -LiteralPath $helper)) { $helper = Join-Path $RepoRoot 'tools\fix-session-cwd.mjs' }
     if (Test-Path -LiteralPath $helper) {
-      $nodeExe = Join-Path $AppRoot 'resources\runtime\primary-runtime\dependencies\node\bin\node.exe'
-      if (-not (Test-Path -LiteralPath $nodeExe)) { $nodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source }
-      & $nodeExe $helper $specPath *>&1 | ForEach-Object { if ($_ -and ([string]$_).Trim()) { Say ('  ' + ([string]$_).Trim()) } }
-      if ($LASTEXITCODE -ne 0) { Warn '仓库会话头 cwd 归一时有文件失败（上面有原因），那几个会话可能带着本机路径入库' }
+      # 0.4.19：执行器统一走 Get-HostNodeRunner（真 node → Electron ELECTRON_RUN_AS_NODE 兜底）。
+      # 旧链路在无独立 node 时拿到 $null 再 & $null，ErrorActionPreference=Stop 下直接把 capture 打死。
+      $cwdRunner = Get-HostNodeRunner $AppRoot
+      if ($cwdRunner) {
+        $cwdPrevEan = $env:ELECTRON_RUN_AS_NODE
+        try {
+          if ($cwdRunner.Electron) { $env:ELECTRON_RUN_AS_NODE = '1' }
+          & $cwdRunner.Exe $helper $specPath *>&1 | ForEach-Object { if ($_ -and ([string]$_).Trim()) { Say ('  ' + ([string]$_).Trim()) } }
+        } finally {
+          if ($cwdRunner.Electron) {
+            if ($null -eq $cwdPrevEan) { Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue } else { $env:ELECTRON_RUN_AS_NODE = $cwdPrevEan }
+          }
+        }
+        if ($LASTEXITCODE -ne 0) { Warn '仓库会话头 cwd 归一时有文件失败（上面有原因），那几个会话可能带着本机路径入库' }
+      } else {
+        Warn '找不到可用的 node/Electron 执行器，跳过仓库会话头归一（仓库里会继续存本机路径）'
+      }
     } else {
       Warn ('找不到 {0}，跳过仓库会话头归一（仓库里会继续存本机路径）' -f $helper)
     }
@@ -748,7 +763,9 @@ foreach ($f in @('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.yml', 'cordis.
 
 # 1.5) 宿主版本契约：记下本机实测的 app 版本，另一台 apply 时据此比对，版本不一致就不铺实验性 bundle
 # 只写 appVersion + electronVersion，不写机器名/日期（那两样会让每次 capture 都产生假 diff）。
-# 已存在且版本不同 → 只告警不改写，避免「较旧的那台 capture 一次就把契约拉低」。
+# 防降级 + 不冻死（0.4.19）：按 semver 单向采纳——本机版本比仓库契约新才改写；本机更旧只告警，
+# 防止「较旧的那台 capture 一次就把契约拉低」。旧策略「只要不等就保持不变」会让 app 每次
+# nightly 升级后契约永久冻结在旧版（apply 的实验 bundle 门控因此一直对着旧版本判断）。
 $hostAppVersion = Get-HostAppVersion $AppRoot
 $contractPath = Join-Path $RepoRoot 'profile\host-contract.json'
 if (-not $hostAppVersion) {
@@ -760,8 +777,18 @@ if (-not $hostAppVersion) {
     try { $existing = [string](Get-Content -LiteralPath $contractPath -Raw -Encoding utf8 | ConvertFrom-Json).appVersion } catch { $existing = $null }
   }
   if ($existing -and ($existing -ne $hostAppVersion)) {
-    Warn "仓库契约 app = $existing，本机 app = $hostAppVersion（不一致，契约保持不变；对齐后再 capture）"
+    $cmp = Compare-Semver $hostAppVersion $existing
+    if ($cmp -gt 0) {
+      Warn ("仓库契约 app = $existing 落后于本机 $hostAppVersion，按 0.4.19 单向采纳规则升级契约")
+      $adoptNewer = $true
+    } else {
+      Warn "仓库契约 app = $existing，本机 app = $hostAppVersion（本机较旧或无法比较，契约保持不变；防止旧机器拉低契约）"
+      $adoptNewer = $false
+    }
   } else {
+    $adoptNewer = $true
+  }
+  if ($adoptNewer) {
     $norm = $contractText -replace "`r`n", "`n"
     $now = if (Test-Path -LiteralPath $contractPath) { ([IO.File]::ReadAllText($contractPath) -replace "`r`n", "`n") } else { '' }
     if ($now -ceq $norm) {

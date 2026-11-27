@@ -2110,7 +2110,7 @@ console.log('== 0.4.17：拉取落地加固（前置检查 + 自愈 + 落地验�
     && appS.includes('duplicate-path') && appS.includes('session-dirs-0'), 'apply.ps1')
   check('落地验证覆盖 projcache/bundle/link 且写 pull-landing-check.json',
     appS.includes('projcache-token') && appS.includes('pull-landing-check.json')
-    && appS.includes('link:$d'), 'apply.ps1')
+    && appS.includes("link:$leaf"), 'apply.ps1')
 
   // notice 白名单与面板文案同步
   check('index.js notice KINDS 含 landing',

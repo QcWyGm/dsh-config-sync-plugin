@@ -277,6 +277,18 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 契约单向采纳 + 落地链路加固（0.4.19）
+
+本版集中修复通读审计发现的五类问题：
+
+- **契约防降级不再冻死**：旧逻辑「本机版本 ≠ 仓库契约就保持不变」让 app 每次 nightly 升级后契约永久冻结在旧版（`host-contract.json` 一直停在 rc.2，实验 bundle 门控对着旧版本判断）。现在按 semver 单向采纳：本机比契约新→升级契约；本机更旧→维持不变（保留防降级意图）。
+- **初始化契约读错版本**：打包版（app.asar）机器做初始化推送时，旧回退链读到的是 Electron 框架版本（44.7.0 之类）写进契约。现在复用 `Get-HostAppVersion` 的正确读取链（asar 手工解析），任何构建形态写入的都是真实 app 版本。
+- **硬编码版本四处脱节**：apply 里 lock 兜底版本、`$cssFallback`、landing 探测名单、23 个 link 目录名映射全部改为从仓库 `package.json` 运行时推导，发新版不再需要手工同步四处，`--frozen-lockfile` 不再因版本错位必挂。
+- **推送前先核对云端**：capture 的镜像删除以「本机没有 = 删仓库」为准，另一台机器刚推过而本机没拉时会静默删掉对方独有的文件（会话/附件不可再生）。现在 push 前先 fetch 并检查 behind>0，领先就停（-Force 可越过）。
+- **WorkspaceOnly 竞态收口**：`-WorkspaceOnly` 分支原来绕过 DSH 运行检查，会和运行中的客户端互踩 workspace.json/会话日志/bili 数据库。进程检查现在提到该分支之前。
+
+附带：`git add -A` 改走 cmd 转发（EAP=Stop 下不再被 stderr advice 中断）；push 失败分类补 non-fast-forward（双机竞态给出「先拉取」指引）；capture 会话头归一执行器统一走 `Get-HostNodeRunner`（无独立 node 时不再 `& $null` 崩溃）并用 `$PID` 命名临时文件；notices byKind 补 `landing` 计数；面板 AutoCard 的 auto 请求统一走 callAuto；同步内容卡必需组单项勾选禁用（原本就是死开关）。
+
 ### 修复拉取前置检查过严（0.4.18）
 
 本版修复 0.4.17 新增的拉取前置检查在目标机误报失败、导致拉取被回滚的问题：

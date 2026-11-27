@@ -763,6 +763,16 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $BackupDir = Join-Path $DshHome "backups\config-$stamp"
 New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
 
+# ---------- 0. 前置检查 ----------
+# 0.4.19：DSH 进程检查提到 -WorkspaceOnly 分支之前。WorkspaceOnly 同样要写 workspace.json、
+# 重写会话日志首帧（fix-session-cwd）、导入 billion-context 的 index.db（SQLite 无 BUSY 重试）——
+# 运行中的 DSH 退出时会回写这些文件，落地内容被盖/互踩。之前只拦非 WorkspaceOnly 路径，
+# 是一个数据竞态窗口。-Force 仍是显式越过的出口。
+$proc = Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue
+if ($proc -and -not $Force) {
+  Die "检测到 DeepSeek Harness 仍在运行（PID: $(($proc.Id) -join ',')）。请完全退出（含托盘）后重新执行，或加 -Force 强制继续。"
+}
+
 # -WorkspaceOnly：只还原工作区 + 会话（B 机没装 DSH 也能先落地资料），做完直接结束
 if ($WorkspaceOnly) {
   if ($SkipWorkspace) { Die "-WorkspaceOnly 与 -SkipWorkspace 不能同时使用" }
@@ -774,11 +784,6 @@ if ($WorkspaceOnly) {
   return
 }
 
-# ---------- 0. 前置检查 ----------
-$proc = Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue
-if ($proc -and -not $Force) {
-  Die "检测到 DeepSeek Harness 仍在运行（PID: $(($proc.Id) -join ',')）。请完全退出（含托盘）后重新执行，或加 -Force 强制继续。"
-}
 foreach ($p in @("$RepoRoot\profile\package.json", "$RepoRoot\profile\cordis.patch.yml")) {
   if (-not (Test-Path -LiteralPath $p)) {
     if (Test-SyncGroupEnabled $Scope 'profile') { Die "仓库内容不完整，缺少：$p" }
@@ -907,10 +912,17 @@ foreach ($f in @('cordis.yml', 'cordis.patch.yml', 'pnpm-workspace.yaml', 'pnpm-
   }
   # 老仓库的 pnpm-lock.yaml 里 dsh-config-sync-plugin 是 link: 写法，与改成 npm 版本的 package.json
   # 对不上会让 --frozen-lockfile 必失败。这里一并改写成 npm 版本，frozen 直接通过。
+  # 0.4.19：目标版本不再硬编码（硬编码会在插件发新版后与 package.json 脱节 → frozen 必挂 →
+  # 就地 no-frozen 重写本机 lock）。从仓库 package.json 读 dsh-config-sync-plugin 的实际依赖值。
   if ($f -eq 'pnpm-lock.yaml' -and $raw -match 'dsh-config-sync-plugin:[\s\S]{0,200}link:') {
-    $raw = [regex]::Replace($raw, '(dsh-config-sync-plugin:\s*\r?\n\s*specifier:\s*)link:[^\r\n]*', '${1}0.4.15')
-    $raw = [regex]::Replace($raw, '(dsh-config-sync-plugin:\s*\r?\n\s*specifier:[^\r\n]*\r?\n\s*version:\s*)link:[^\r\n]*', '${1}0.4.15')
-    Warn 'pnpm-lock.yaml 里 dsh-config-sync-plugin 的 link: 写法已改写为 npm 版本 0.4.15（与 package.json 对齐）'
+    if (-not $cssNpmVersion) {
+      $cssNpmVersion = $null
+      try { $cssNpmVersion = [string]$repoPkgObj.dependencies.'dsh-config-sync-plugin' } catch { $cssNpmVersion = $null }
+      if ($cssNpmVersion -like 'link:*' -or -not $cssNpmVersion) { $cssNpmVersion = '0.4.19' }
+    }
+    $raw = [regex]::Replace($raw, '(dsh-config-sync-plugin:\s*\r?\n\s*specifier:\s*)link:[^\r\n]*', ('${1}' + $cssNpmVersion))
+    $raw = [regex]::Replace($raw, '(dsh-config-sync-plugin:\s*\r?\n\s*specifier:[^\r\n]*\r?\n\s*version:\s*)link:[^\r\n]*', ('${1}' + $cssNpmVersion))
+    Warn "pnpm-lock.yaml 里 dsh-config-sync-plugin 的 link: 写法已改写为 npm 版本 $cssNpmVersion（与仓库 package.json 对齐）"
   }
   Write-TextPreserveBom (Join-Path $ProfileDir $f) $raw
 }
@@ -923,6 +935,9 @@ $pkgRaw = Expand-AppRoot (Read-TextPreserveBom (Join-Path $RepoRoot 'profile\pac
 $bundlesInRepo = @()
 try { $bundlesInRepo = @(($pkgRaw | ConvertFrom-Json).dsh.profile.bundles) }
 catch { Die "仓库 profile\package.json 不是合法 JSON：$($_.Exception.Message)" }
+# 0.4.19：仓库 package.json 对象供 link:/npm 版本推导复用（lock 改写、$cssFallback、landing 探测）。
+$repoPkgObj = $null
+try { $repoPkgObj = $pkgRaw | ConvertFrom-Json } catch { }
 
 $dropped = @()
 foreach ($b in $bundlesInRepo) {
@@ -960,32 +975,42 @@ try { $finalBundles = @(($pkgRaw | ConvertFrom-Json).dsh.profile.bundles) }
 catch { Die "剔除实验性 bundle 后 package.json 不再是合法 JSON（请手动核对 profile\package.json）" }
 if ($dropped.Count -gt 0) { Ok "已剔除 $($dropped.Count) 个实验性 bundle，清单剩 $($finalBundles.Count) 项" }
 
-$localPluginMap = [ordered]@{
-  'dsh-our-free-model-2.8.0'      = 'dsh-our-free-model'
-  'dsh-purge-1.4.0'               = 'dsh-purge'
-  'dsh-config-sync-plugin-0.3.69' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.81' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.80' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.79' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.78' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.77' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.76' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.75' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.74' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.73' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.70' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.68' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.67' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.66' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.65' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.64' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.63' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.62' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.61' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.59' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.58' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.57' = 'dsh-config-sync-plugin'
-  'dsh-config-sync-plugin-0.3.56' = 'dsh-config-sync-plugin'
+# 0.4.19：link: 目录名映射不再手工维护（23 个硬编码目录名每次发版都要同步，漏一个就装不上）。
+# 改为从仓库 package.json 的 dependencies 动态推导：任何 link:<…>/<leaf> 依赖，
+# leaf 就是 AppRoot 下的源码目录名；唯一例外 dsh-config-sync-plugin 走下面的 npm 兜底。
+# 已知包名 → 原始目录名的对照表只在「leaf 与包名不同」时才需要（如 dsh-our-free-model）。
+$localPluginMap = [ordered]@{ }
+try {
+  $depNames = @()
+  if ($repoPkgObj -and $repoPkgObj.dependencies) { $depNames = @($repoPkgObj.dependencies.PSObject.Properties.Name) }
+  foreach ($dn in $depNames) {
+    $dv = [string]$repoPkgObj.dependencies.$dn
+    if (-not $dv) { continue }
+    if ($dv -like 'link:*') {
+      # 本机 package.json 里的 link: 写法（占位符已展开为本机路径）：leaf 是目录名
+      $leaf = [IO.Path]::GetFileName(($dv -replace '^link:', '').TrimEnd('/', '\'))
+      if ($leaf -and $leaf -ne $dn) { $localPluginMap[$leaf] = $dn }
+    } elseif ($dv -match '(?i)^[^/"'']*[\\/]?([^/"''\\]+)\.(tgz|zip)$') {
+      # 归档写法 file:…/dsh-xxx-1.2.3.tgz：解包后目录名是去掉版本号的包名
+      $leaf = $Matches[1]
+      if ($leaf -and $leaf -ne $dn) { $localPluginMap[$leaf] = $dn }
+    }
+  }
+} catch { }
+# 兼容兜底：老仓库既没有 link: 也没有归档写法时（package.json 里只有裸 link:{{APP_ROOT}}/dsh-xxx-1.2.3
+# 已被上面的 link: 分支覆盖），保留一组历史遗留目录名，防止老仓库漏映射。
+if ($localPluginMap.Count -eq 0) {
+  foreach ($legacy in @('dsh-our-free-model-2.8.0', 'dsh-purge-1.4.0',
+      'dsh-config-sync-plugin-0.3.56', 'dsh-config-sync-plugin-0.3.57', 'dsh-config-sync-plugin-0.3.58',
+      'dsh-config-sync-plugin-0.3.59', 'dsh-config-sync-plugin-0.3.61', 'dsh-config-sync-plugin-0.3.62',
+      'dsh-config-sync-plugin-0.3.63', 'dsh-config-sync-plugin-0.3.64', 'dsh-config-sync-plugin-0.3.65',
+      'dsh-config-sync-plugin-0.3.66', 'dsh-config-sync-plugin-0.3.67', 'dsh-config-sync-plugin-0.3.68',
+      'dsh-config-sync-plugin-0.3.69', 'dsh-config-sync-plugin-0.3.70', 'dsh-config-sync-plugin-0.3.73',
+      'dsh-config-sync-plugin-0.3.74', 'dsh-config-sync-plugin-0.3.75', 'dsh-config-sync-plugin-0.3.76',
+      'dsh-config-sync-plugin-0.3.77', 'dsh-config-sync-plugin-0.3.78', 'dsh-config-sync-plugin-0.3.79',
+      'dsh-config-sync-plugin-0.3.80', 'dsh-config-sync-plugin-0.3.81')) {
+    $localPluginMap[$legacy] = ($legacy -replace '-\d+\.\d+\.\d+$', '')
+  }
 }
 foreach ($dirName in $localPluginMap.Keys) {
   $pattern = 'link:[^"]*' + [regex]::Escape($dirName)
@@ -993,10 +1018,15 @@ foreach ($dirName in $localPluginMap.Keys) {
 }
 # 兜底：老仓库里 dsh-config-sync-plugin 还是 link:{{APP_ROOT}}/dsh-config-sync-plugin-xxx，
 # 目标机 AppRoot 下没有那个源码目录 → pnpm 装不上 → bundle "dsh-config-sync-plugin" 解析失败。
-# 该插件已发布到 npm，统一改写成 npm 版本依赖（用仓库契约/已装版本，缺省 0.4.15），
+# 该插件已发布到 npm，统一改写成 npm 版本依赖（用仓库 package.json 的实际值，缺省 0.4.19），
 # 让 pnpm install 从 registry 安装。新仓库 capture 已直接写 npm 版本，这里只兜底老仓库。
 if ($pkgRaw -match '"dsh-config-sync-plugin"\s*:\s*"link:') {
-  $cssFallback = '0.4.15'
+  if (-not $cssNpmVersion) {
+    $cssNpmVersion = $null
+    try { $cssNpmVersion = [string]$repoPkgObj.dependencies.'dsh-config-sync-plugin' } catch { $cssNpmVersion = $null }
+    if ($cssNpmVersion -like 'link:*' -or -not $cssNpmVersion) { $cssNpmVersion = '0.4.19' }
+  }
+  $cssFallback = $cssNpmVersion
   $pkgRaw = [regex]::Replace($pkgRaw, '"dsh-config-sync-plugin"\s*:\s*"link:[^"]*"', ('"dsh-config-sync-plugin": "' + $cssFallback + '"'))
   Warn "package.json 里 dsh-config-sync-plugin 是 link: 开发依赖，已改写为 npm 版本 $cssFallback（本地源码目录在目标机不存在，必须走 npm 安装）"
 }
@@ -1675,17 +1705,23 @@ function Test-PullLanding {
   foreach ($ub in @($unresolved)) {
     Add-SyncNotice -Kind 'landing' -Path $ub -Reason 'bundle 本机不可解析，工作区/会话已落地但相关功能不可用。'
   }
-  # 7) 本机 profile 若仍用 link: 指向 AppRoot 下的本地源码目录，那目录必须存在
+  # 7) 本机 profile 若仍用 link: 指向 AppRoot 下的本地源码目录，那目录必须存在。
+  #    0.4.19：不再写死两个插件名——遍历 profile\package.json 全部 link: 依赖，leaf 缺目录就报。
   $localProfilePkg = Join-Path $ProfileDir 'package.json'
   if (Test-Path -LiteralPath $localProfilePkg) {
     try {
       $lp = Get-Content -LiteralPath $localProfilePkg -Raw -Encoding UTF8 | ConvertFrom-Json
-      foreach ($d in @('dsh-purge-1.4.0', 'dsh-our-free-model-2.8.0')) {
-        $dn = $d -replace '-\d+\.\d+\.\d+$', ''
-        $dep = $lp.dependencies.$dn
-        if ($dep -and ([string]$dep -like 'link:*') -and -not (Test-Path -LiteralPath (Join-Path $AppRoot $d))) {
-          $issues += "link:$d"
-          Add-SyncNotice -Kind 'landing' -Path $d -Reason ("本机 profile 用 link: 依赖 " + $dn + "，但 AppRoot 下缺少 " + $d + " 目录。")
+      if ($lp.dependencies) {
+        foreach ($depProp in $lp.dependencies.PSObject.Properties) {
+          $depName = [string]$depProp.Name
+          $depVal = [string]$depProp.Value
+          if ($depVal -notlike 'link:*') { continue }
+          $leaf = [IO.Path]::GetFileName(($depVal -replace '^link:', '').TrimEnd('/', '\'))
+          if (-not $leaf) { continue }
+          if (-not (Test-Path -LiteralPath (Join-Path $AppRoot $leaf))) {
+            $issues += "link:$leaf"
+            Add-SyncNotice -Kind 'landing' -Path $leaf -Reason ("本机 profile 用 link: 依赖 " + $depName + "，但 AppRoot 下缺少 " + $leaf + " 目录。")
+          }
         }
       }
     } catch { }
