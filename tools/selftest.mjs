@@ -381,7 +381,7 @@ const prevScope = existsSync(scopeFile) ? readFileSync(scopeFile, 'utf8') : null
 const scopeGet = await call('/config-sync/scope', { headers: { host: 'localhost:3080' } })
 const scopeBody = JSON.parse(scopeGet.body || '{}')
 check('scope 返回 200', scopeGet.statusCode === 200, String(scopeGet.statusCode))
-check('scope 列出十二组同步内容', Array.isArray(scopeBody.groups) && scopeBody.groups.length === 12, `${(scopeBody.groups || []).length} 组`)
+check('scope 列出十二组以上同步内容（含 mcp-connectors）', Array.isArray(scopeBody.groups) && scopeBody.groups.length >= 12, `${(scopeBody.groups || []).length} 组`)
 check('scope 每组都带标题 / 说明 / 明细项',
   (scopeBody.groups || []).every((g) => g && typeof g.title === 'string' && typeof g.desc === 'string' && Array.isArray(g.items)),
   (scopeBody.groups || []).map((g) => g.id).join(', '))
@@ -558,8 +558,8 @@ const profileGroup = (reqAfter.groups || []).find((g) => g.id === 'profile') || 
 check('回读里 profile 仍是勾选、并标了 required',
   profileGroup.enabled === true && profileGroup.required === true,
   `enabled=${profileGroup.enabled} required=${profileGroup.required}`)
-check('其余组没有 required 标记（只有真正会报错的那组被钉死）',
-  (reqAfter.groups || []).filter((g) => g.id !== 'profile').every((g) => g.required !== true))
+check('必需组含 profile/workspace/conversations 三项（拉取会落地工作区/会话）',
+  ['profile', 'workspace', 'conversations'].every((id) => (reqAfter.groups || []).some((g) => g.id === id && g.required === true)))
 if (prevScope === null) { try { unlinkSync(scopeFile) } catch { } } else writeFileSync(scopeFile, prevScope, 'utf8')
 // D:\dsh-config，所以这里退一步做静态断言——宿主源码里确实有这道守卫，且提示指向面板。
 {
@@ -656,7 +656,7 @@ if (prevScope === null) { try { unlinkSync(scopeFile) } catch { } } else writeFi
     indexSrc.includes("action === 'prepare'") && indexSrc.includes('async function downloadPackage') &&
     indexSrc.includes('update-staging'), 'index.js')
   check('只下载会按候选地址逐个试并校验 sha256',
-    /function downloadPackage[\s\S]{0,1200}createHash\('sha256'\)/.test(indexSrc), 'index.js')
+    /function downloadPackage[\s\S]{0,2000}createHash\('sha256'\)/.test(indexSrc), 'index.js')
   check('宿主有「装并重启」动作（install-restart，把本地包交给退出后的脚本）',
     indexSrc.includes("action === 'install-restart'") &&
     /action === 'install-restart'[\s\S]{0,900}-UpdateTgz/.test(indexSrc), 'index.js')
@@ -2066,5 +2066,53 @@ console.log('== 0.4.10：拉取不再因本机/契约版本不一致而阻断 ==
     !/版本不一致（本机 \$\{version\.local\}/.test(cliSrc)
     && cliSrc.includes("metric(M('本机 / 契约', 'App / contract'), versionText, 'ok')"), 'client.js 去告警')
 }
+console.log('')
+console.log('== 0.4.17：拉取落地加固（前置检查 + 自愈 + 落地验证）==')
+{
+  const syncS = readFileSync(join(pluginRootSelf, 'runtime', 'sync.ps1'), 'utf8')
+  const comS  = readFileSync(join(pluginRootSelf, 'runtime', 'dsh-sync-common.ps1'), 'utf8')
+  const appS  = readFileSync(join(pluginRootSelf, 'runtime', 'apply.ps1'), 'utf8')
+  const idxS  = readFileSync(join(pluginRootSelf, 'index.js'), 'utf8')
+  const cliS  = readFileSync(join(pluginRootSelf, 'client.js'), 'utf8')
+
+  // 必需组扩到三项（ps1 / 宿主 / 面板三处联动）
+  check('必需组含 profile/workspace/conversations（ps1 侧）',
+    /\$SyncRequiredGroups\s*=\s*@\('profile'\s*,\s*'workspace'\s*,\s*'conversations'\)/.test(comS), 'dsh-sync-common.ps1')
+  check('必需组含三项（宿主侧 SCOPE_REQUIRED_GROUPS）',
+    /const SCOPE_REQUIRED_GROUPS\s*=\s*\['profile'\s*,\s*'workspace'\s*,\s*'conversations'\]/.test(idxS), 'index.js')
+  check('工作区/会话组在面板标 required（不可取消）',
+    (idxS.match(/required: true/g) || []).length >= 3 && cliS.includes('g.required === true'), 'index.js/client.js')
+
+  // 前置检查：sync.ps1 在 Initialize-RepoIfNeeded 之后、apply 之前调用
+  check('sync.ps1 pull 调 Test-PullPreflight（repo 初始化后、apply 前）',
+    appS !== '' && syncS.includes('function Test-PullPreflight')
+    && syncS.lastIndexOf('Test-PullPreflight') > syncS.indexOf('Initialize-RepoIfNeeded')
+    && syncS.lastIndexOf('Test-PullPreflight') < syncS.lastIndexOf("& (Join-Path $PSScriptRoot 'apply.ps1')"), 'sync.ps1')
+  check('前置检查覆盖 scope/root/link 三类',
+    syncS.includes("Test-SyncGroupEnabled $scopeNow $g") && syncS.includes("@('workspace', 'conversations')")
+    && syncS.includes('Get-SyncRoots') && syncS.includes("link:*"), 'sync.ps1')
+
+  // bundle 不再 Die/回滚
+  check('bundle 未解析不再 Die（记 notice + 继续落地）',
+    appS.includes('bundle 未全解析，但工作区/会话已落地')
+    && !/bundle 清单[\s\S]{0,400}已停止，先别启动/.test(appS), 'apply.ps1')
+
+  // 落地验证函数存在且被调用，覆盖 DSH 登记表判据
+  check('apply.ps1 有 Test-PullLanding 且被调用',
+    appS.includes('function Test-PullLanding') && appS.includes('$null = Test-PullLanding'), 'apply.ps1')
+  check('落地验证覆盖 workspaceIds/defaultWorkspaceId/duplicate/session 目录',
+    appS.includes('workspaceIds-empty') && appS.includes('defaultWorkspaceId-dangling')
+    && appS.includes('duplicate-path') && appS.includes('session-dirs-0'), 'apply.ps1')
+  check('落地验证覆盖 projcache/bundle/link 且写 pull-landing-check.json',
+    appS.includes('projcache-token') && appS.includes('pull-landing-check.json')
+    && appS.includes('link:$d'), 'apply.ps1')
+
+  // notice 白名单与面板文案同步
+  check('index.js notice KINDS 含 landing',
+    /KINDS = \[[^\]]*'landing'/.test(idxS), 'index.js')
+  check('client.js notice 文案含 landing 标签',
+    cliS.includes("landing: M('落地检查', 'Landing check')"), 'client.js')
+}
+
 process.exit(failures === 0 ? 0 : 1)
 

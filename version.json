@@ -1,11 +1,11 @@
 {
-  "version": "0.4.16",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.16/dsh-config-sync-plugin-0.4.16.tgz",
-  "tgzBytes": 463924,
-  "sha256": "474167e919f46cf250948d047ff5073ec0dfefe4c822daf99b2b113f5298008c",
+  "version": "0.4.17",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.17/dsh-config-sync-plugin-0.4.17.tgz",
+  "tgzBytes": 468665,
+  "sha256": "809800786e46c99c76cbdd2b7ca84fdcc0d8eb9c8437900447aaee69734e443b",
   "npmSha256": "631451e23d8420f489832127a7f6e375186a7045b819561b27bcefc1d9664dcb",
-  "releasedAt": "2026-11-26",
-  "notes": "修复跨机器拉取后 bundle 解析失败：capture 把 dsh-config-sync-plugin 的 link: 开发依赖归一为 npm 版本，apply 兜底改写老仓库残留的 link:；目标机 pnpm install 可正常从 registry 安装，DSH 启动不再报 bundle 解析失败。",
-  "notesEn": "Fix cross-machine pull bundle resolution failure: capture normalizes dsh-config-sync-plugin link: dev dependency to npm version; apply backfills leftover link: in old repos so pnpm install works from registry and DSH starts without bundle resolution errors.",
+  "releasedAt": "2026-11-27",
+  "notes": "拉取落地加固：工作区与会话纳入必需同步组（不可误取消）；拉取前检查 scope、本机根路径与 link: 插件前置条件并给出明确诊断；bundle 未解析不再触发回滚、避免擦掉已落地的工作区/会话；落地后校验工作区登记表（workspaceIds、默认工作区、重复路径）与会话目录并写 pull-landing-check.json，让另一台机器拉取即能用。",
+  "notesEn": "Pull landing hardening: workspace and conversations become required sync groups; preflight checks scope, local roots and link: plugin prerequisites before pull with clear diagnostics; unresolved bundles no longer trigger rollback that wipes landed workspace/session data; post-landing verification checks the workspace registry (workspaceIds, default workspace, duplicate paths) and session directories, writing pull-landing-check.json so a second machine is usable right after pull.",
   "minClient": "0.2.2-rc.2"
 }

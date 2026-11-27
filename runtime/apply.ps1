@@ -1596,6 +1596,116 @@ if (Test-SyncGroupEnabled $Scope 'profile') {
     if ($bm -eq 0) { Ok '插件备份无需清理' }
   }
 }
+function Test-PullLanding {
+  # 0.4.17 落地后验证：「同步成功」和「DSH 真能读出来」之间还差最后一步。按 DSH 的登记表
+  # 判据逐条核对，任何一条不过都写 pull-landing-check.json + notice，把"上层取不到数据"的
+  # 原因摆到明面，而不是让用户对着空工作区/空会话列表瞎猜。本函数只提示、不回滚。
+  $issues = @()
+  $ids = @()
+  $def = ''
+  $localDirs = 0
+  $reg = Join-Path $DshHome 'storages\workspace.json'
+  $o = $null
+  if (-not (Test-Path -LiteralPath $reg)) {
+    $issues += 'workspace.json-missing'
+    Add-SyncNotice -Kind 'landing' -Path 'storages/workspace.json' -Reason '本机工作区登记表不存在。'
+  } else {
+    try { $o = Get-Content -LiteralPath $reg -Raw -Encoding UTF8 | ConvertFrom-Json }
+    catch {
+      $issues += 'workspace.json-invalid'
+      Add-SyncNotice -Kind 'landing' -Path 'storages/workspace.json' -Reason '工作区登记表不是合法 JSON。'
+    }
+  }
+  if ($o) {
+    # 1) global.workspaceIds 非空
+    if ($o.global -and $o.global.workspaceIds) { $ids = @($o.global.workspaceIds | Where-Object { $_ }) }
+    if ($ids.Count -eq 0) {
+      $issues += 'workspaceIds-empty'
+      Add-SyncNotice -Kind 'landing' -Path 'global.workspaceIds' -Reason '工作区登记表 global.workspaceIds 为空，DSH 工作台会显示空列表。'
+    }
+    # 2) defaultWorkspaceId 不悬空（悬空会让 DSH 校验整张表失败）
+    if ($o.global) { $def = [string]$o.global.defaultWorkspaceId }
+    $hasDef = $false
+    if ($def -and $o.tables -and $o.tables.workspaces) {
+      $hasDef = ($null -ne $o.tables.workspaces.PSObject.Properties[$def])
+    }
+    if (-not $hasDef) {
+      $issues += 'defaultWorkspaceId-dangling'
+      Add-SyncNotice -Kind 'landing' -Path 'global.defaultWorkspaceId' -Reason '默认工作区 ID 悬空，DSH 校验整张登记表失败。'
+    }
+    # 3) 无 duplicate path：DSH 启动校验 duplicate paths，同路径两条会整表判坏 → 列表全空
+    $seen = @{}
+    $dup = @()
+    if ($o.tables -and $o.tables.workspaces) {
+      foreach ($p in $o.tables.workspaces.PSObject.Properties) {
+        $np = ([string]$p.Value.path).Replace('/', '\').TrimEnd('\').ToLowerInvariant()
+        if (-not $np) { continue }
+        if ($seen.ContainsKey($np)) { $dup += $np } else { $seen[$np] = $true }
+      }
+    }
+    if ($dup.Count -gt 0) {
+      $issues += 'duplicate-path'
+      Add-SyncNotice -Kind 'landing' -Path 'tables.workspaces' -Reason ("登记表里有 " + $dup.Count + " 条重复路径，DSH 会整表判坏。")
+    }
+  }
+  # 4) 会话目录：仓库有、本机 0 个 → 上层读不出会话
+  $repoSess = Join-Path $RepoRoot 'conversations\sessions'
+  $localSess = Join-Path $DshHome 'sessions'
+  $repoDirs = if (Test-Path -LiteralPath $repoSess) { @(Get-ChildItem -LiteralPath $repoSess -Directory -Force).Count } else { 0 }
+  $localDirs = if (Test-Path -LiteralPath $localSess) { @(Get-ChildItem -LiteralPath $localSess -Directory -Force).Count } else { 0 }
+  if ($repoDirs -gt 0 -and $localDirs -eq 0) {
+    $issues += 'session-dirs-0'
+    Add-SyncNotice -Kind 'landing' -Path 'sessions' -Reason ("仓库有 " + $repoDirs + " 个会话目录，本机 sessions 为 0 个。")
+  }
+  # 5) projcache 占位符残留：apply 故意不同步 projcache（让 DSH 从 session log 重建），
+  #    但本机若留着带占位符的旧缓存，投影同样取不到数据 —— 只提示、不阻断。
+  $pc = Join-Path $DshHome 'storages\session_projcache\sessions'
+  if (Test-Path -LiteralPath $pc) {
+    $bad = 0
+    foreach ($f in @(Get-ChildItem -LiteralPath $pc -Recurse -File -Filter '*.json' -ErrorAction SilentlyContinue)) {
+      $raw = Get-Content -LiteralPath $f.FullName -Raw
+      if ($raw -match '\{\{(APP_ROOT|WORKSPACE_HOME|DSH_HOME)\}\}') { $bad++ }
+    }
+    if ($bad -gt 0) {
+      $issues += 'projcache-token'
+      Add-SyncNotice -Kind 'landing' -Path 'storages/session_projcache/sessions' -Reason ($bad + " 个会话投影缓存仍含占位符，DSH 启动时会重建。")
+    }
+  }
+  # 6) bundle / link：复用刚才自检段算出的 $unresolved
+  foreach ($ub in @($unresolved)) {
+    Add-SyncNotice -Kind 'landing' -Path $ub -Reason 'bundle 本机不可解析，工作区/会话已落地但相关功能不可用。'
+  }
+  # 7) 本机 profile 若仍用 link: 指向 AppRoot 下的本地源码目录，那目录必须存在
+  $localProfilePkg = Join-Path $ProfileDir 'package.json'
+  if (Test-Path -LiteralPath $localProfilePkg) {
+    try {
+      $lp = Get-Content -LiteralPath $localProfilePkg -Raw -Encoding UTF8 | ConvertFrom-Json
+      foreach ($d in @('dsh-purge-1.4.0', 'dsh-our-free-model-2.8.0')) {
+        $dn = $d -replace '-\d+\.\d+\.\d+$', ''
+        $dep = $lp.dependencies.$dn
+        if ($dep -and ([string]$dep -like 'link:*') -and -not (Test-Path -LiteralPath (Join-Path $AppRoot $d))) {
+          $issues += "link:$d"
+          Add-SyncNotice -Kind 'landing' -Path $d -Reason ("本机 profile 用 link: 依赖 " + $dn + "，但 AppRoot 下缺少 " + $d + " 目录。")
+        }
+      }
+    } catch { }
+  }
+  $out = [ordered]@{
+    at                 = (Get-Date).ToString('o')
+    ok                 = ($issues.Count -eq 0)
+    workspaceIds       = $ids.Count
+    defaultWorkspaceId = $def
+    sessionDirs        = $localDirs
+    issues             = @($issues)
+  }
+  try {
+    [IO.File]::WriteAllText((Join-Path $DshHome 'pull-landing-check.json'), ($out | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding($false)))
+  } catch { Warn ('写 pull-landing-check.json 失败：' + $_.Exception.Message) }
+  if ($issues.Count -gt 0) { Warn ("落地后验证未通过：" + ($issues -join '、') + "（详见 " + $DshHome + "\pull-landing-check.json）") }
+  else { Ok '落地后验证通过：工作区/会话/登记表齐备，DSH 可读取' }
+  return $issues
+}
+
 # ---------- 10. 自检 ----------
 Say ""
 Say "== 自检 =="
@@ -1641,12 +1751,18 @@ if ($unresolved.Count -eq 0) {
     Add-SyncNotice -Kind 'plugin-missing' -Path $ub -Reason ('bundle 在本机解析不到：插件没装好（pnpm install 没成功，或仓库里没有这个插件的归档）。装好后重新拉取一次；若它是宿主绑定的实验性 bundle，删掉本机 profile\package.json 里那一行。')
   }
   if (-not $ForceBundles) {
-    Die ("已停止，先别启动。处理：①若上面「缺少插件」不为空，说明 pnpm install 没成功；" +
-         "②若是宿主绑定的实验性 bundle，直接删掉本机 profile\package.json 里那一行；" +
-         "③确认无误后可加 -ForceBundles 跳过本检查（启动仍有崩溃风险）。")
+    # 0.4.17：bundle 未全解析不再 Die —— 工作区/会话此刻已经落地，为缺一个 bundle 就让
+    # 脚本非零退出，会让 post-exit.ps1 把已落地的数据整段回滚，用户看到的就是"拉完还是空的"。
+    # 改为记 notice + 继续；-ForceBundles 保留为严格模式（当前语义）。
+    Warn "bundle 未全解析，但工作区/会话已落地：不阻断（0.4.17）；已记入 sync-notices.json，装好插件后重新拉取。"
+    foreach ($ub in $unresolved) {
+      Add-SyncNotice -Kind 'landing' -Path $ub -Reason 'bundle 在本机解析不到：工作区/会话已落地，装好后重新拉取即可。'
+    }
+  } else {
+    Warn "已加 -ForceBundles（严格检查仍不阻断落地）"
   }
-  Warn "已加 -ForceBundles，跳过该检查（启动仍可能崩溃）"
 }
+$null = Test-PullLanding
 Ok "Skill 目录：$((Get-ChildItem -LiteralPath $skillsDst -Directory -Force -ErrorAction SilentlyContinue | Measure-Object).Count) 个"
 Say ""
 Say "下一步：完全启动 DSH（不是重启窗口，要确认进程全部退出后再开）。"

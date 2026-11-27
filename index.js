@@ -1528,7 +1528,7 @@ function readAutoResult(dshHome) {
  * 就回落到 ~/.dsh/sync-notices.json。两种情况都做裁剪，避免一个几万文件的仓库把 /status 撑爆。
  */
 function readNoticeList(dshHome, fromResult) {
-  const KINDS = ['plugin-missing', 'context-state', 'history', 'too-large', 'failed', 'skipped']
+  const KINDS = ['plugin-missing', 'context-state', 'history', 'too-large', 'failed', 'skipped', 'landing']
   let raw = fromResult
   if (!raw || !Array.isArray(raw.items)) {
     try {
@@ -3095,7 +3095,7 @@ function writeScope(dshHome, scope) {
 // 必需组：不许取消勾选 —— 因为不勾就会报错，而不是"少同步一点"。
 // profile 里的 package.json / cordis.patch.yml 是 apply 的前置条件（仓库里缺它们 apply.ps1 直接 Die）。
 // host-contract.json 自 0.4.10 起只用于「本机/契约」信息条展示，版本不同不再阻断拉取。
-const SCOPE_REQUIRED_GROUPS = ['profile']
+const SCOPE_REQUIRED_GROUPS = ['profile', 'workspace', 'conversations']
 function scopeGroupRequired(id) { return SCOPE_REQUIRED_GROUPS.includes(id) }
 
 function scopeGroupEnabled(scope, id) {
@@ -3420,11 +3420,11 @@ function collectScopeGroups(dshHome, appRoot) {
 
   const workspaces = listWorkspaceEntries(dshHome)
   groups.push({ id: 'workspace', titleZh: '工作区资料', titleEn: 'Workspace files',
-    descZh: '登记过的工作区里的资料（>100MB 与模型权重本来就不同步）', descEn: 'Files inside registered workspaces (big files and model weights are never synced)',
+    descZh: '登记过的工作区里的资料（>100MB 与模型权重本来就不同步）', descEn: 'Files inside registered workspaces (big files and model weights are never synced)', required: true,
     items: workspaces.map((w) => ({ id: w.id, label: w.title })) })
 
   groups.push({ id: 'conversations', titleZh: '会话记录', titleEn: 'Conversations',
-    descZh: '每个工作区的对话、附件与缓存（按工作区勾选）', descEn: 'Chats, attachments and caches per workspace',
+    descZh: '每个工作区的对话、附件与缓存（按工作区勾选）', descEn: 'Chats, attachments and caches per workspace', required: true,
     items: workspaces.map((w) => ({ id: w.id, label: w.title })) })
 
   const scope = readScope(dshHome)

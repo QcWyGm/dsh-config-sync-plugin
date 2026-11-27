@@ -69,6 +69,61 @@ Say ""
 Say "== DSH 配置同步 / $Action =="
 Say "仓库：$RepoRoot"
 
+function Test-PullPreflight {
+  # 0.4.17 拉取前置检查：把"拉完了却落不了地"的前置条件在进入 apply 之前查一遍。
+  # 不替用户装插件、不猜根路径，只把会造成空工作区/空会话的条件摆出来并写 notice，
+  # 避免"拉完但是空的"这种最难排查的状态。
+  $fail = @()
+  $scopeNow = Get-SyncScope $DshHome
+  # 1) 必需组：ps1 侧 Test-SyncGroupEnabled 已恒 true，这里显式再核对，兼顾老 scope 文件
+  foreach ($g in @('workspace', 'conversations')) {
+    if (-not (Test-SyncGroupEnabled $scopeNow $g)) {
+      Add-SyncNotice -Kind 'landing' -Path ("scope/" + $g) -Reason ("「" + $g + "」同步组未勾选，拉取无法落地工作区/会话。")
+      $fail += ($g + ' 未勾选')
+    }
+  }
+  if ($SkipWorkspace) {
+    Add-SyncNotice -Kind 'landing' -Path 'switch/SkipWorkspace' -Reason '本次带了 -SkipWorkspace，会整段跳过工作区与会话。'
+    $fail += '-SkipWorkspace'
+  }
+  # 2) 根路径：appRoot / workspaceHome 必须存在
+  $roots = Get-SyncRoots $DshHome $AppRoot $WorkspaceHome
+  foreach ($k in @('appRoot', 'workspaceHome')) {
+    $rv = [string]$roots.$k
+    if (-not $rv -or -not (Test-Path -LiteralPath $rv)) {
+      Add-SyncNotice -Kind 'landing' -Path ("roots/" + $k) -Reason ("本机根 " + $k + " 未确认或目录不存在：" + $rv + "。")
+      $fail += ($k + ' 未确认')
+    }
+  }
+  if (@($roots.confirmed).Count -eq 0) {
+    Add-SyncNotice -Kind 'landing' -Path 'config-sync-roots.json' -Reason 'confirmed 为空，请在面板确认本机路径。'
+  }
+  # 3) link 型插件：本地 AppRoot 下缺目录、仓库也无归档 → pnpm install 必失败 → bundle 解析不到
+  $pkg = Join-Path $RepoRoot 'profile\package.json'
+  if (Test-Path -LiteralPath $pkg) {
+    try {
+      $deps = (Get-Content -LiteralPath $pkg -Raw -Encoding utf8 | ConvertFrom-Json).dependencies
+      foreach ($nm in $deps.PSObject.Properties.Name) {
+        $v = [string]$deps.$nm
+        if ($v -like 'link:*' -and $nm -ne 'dsh-config-sync-plugin') {
+          $leaf = [IO.Path]::GetFileName(($v -replace '^link:', ''))
+          if ($leaf -and -not (Test-Path -LiteralPath (Join-Path ([string]$roots.appRoot) $leaf))) {
+            $arch = Join-Path $RepoRoot ("local-plugins\" + $leaf + ".tgz")
+            if (-not (Test-Path -LiteralPath $arch)) {
+              Add-SyncNotice -Kind 'landing' -Path $nm -Reason ("link 目标 " + $leaf + " 不在 AppRoot 下、仓库也无归档，pnpm install 会失败。")
+              $fail += ("link:" + $leaf + " 缺失")
+            }
+          }
+        }
+      }
+    } catch { }
+  }
+  if ($fail.Count -gt 0) {
+    Die ("拉取前置检查未通过：" + ($fail -join '、') + "；详见 " + $DshHome + "\sync-notices.json。修正后重新拉取。")
+  }
+  Ok '拉取前置检查通过：scope/root/link 齐备'
+}
+
 function Get-RepoState {
   $branch = (& $git -C $RepoRoot rev-parse --abbrev-ref HEAD 2>$null)
   $head = (& $git -C $RepoRoot log -1 --oneline 2>$null)
@@ -975,6 +1030,7 @@ if ($Action -eq 'push') {
 
 # ---------- pull ----------
 Initialize-RepoIfNeeded
+Test-PullPreflight
 if ((Test-DshRunning) -and (-not $Force)) {
   Die "DeepSeek Harness 仍在运行。请完全退出（含托盘）后重跑，或加 -Force 强制继续。"
 }

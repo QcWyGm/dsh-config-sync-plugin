@@ -257,6 +257,15 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Pull landing hardening: usable right after pull on a second machine (0.4.17)
+
+Fixes "workspace and conversations both empty after pulling sync on another machine":
+
+- **Root cause**: workspace/conversations groups could be unchecked; unconfirmed local roots, missing `link:` plugin directories or unresolved bundles made apply exit mid-way or DSH read an empty registry; an unresolved bundle also made the script exit non-zero and triggered post-exit rollback, wiping already-landed data.
+- **Preflight**: before apply, pull checks the workspace/conversations groups, `-SkipWorkspace`, local appRoot/workspaceHome and `link:` plugin targets; missing prerequisites produce a clear diagnosis in sync-notices.json instead of a silent empty result.
+- **No rollback**: unresolved bundles now record a notice and continue instead of Die, so landed workspace/session data is kept; `-ForceBundles` keeps the strict check.
+- **Landing verification**: after apply, verify non-empty `workspaceIds`, a non-dangling default workspace, no duplicate paths, session directories restored, no leftover projcache tokens and complete `link:` plugins; result goes to `pull-landing-check.json`.
+- **Required groups**: workspace files and conversations join profile as required sync groups and cannot be unchecked in the panel.
 ### Fix cross-machine pull bundle resolution failure (0.4.16)
 
 This release fixes `cannot resolve profile bundle "dsh-config-sync-plugin"` on the target machine after pulling config:

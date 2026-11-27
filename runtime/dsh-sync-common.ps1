@@ -714,7 +714,7 @@ function Get-PluginDataFiles([string]$slotDir, $cfg, [string]$baseDir = '') {
 #   profile 里的 package.json / cordis.patch.yml 是 apply 的前置条件 —— 仓库缺它们，apply.ps1 直接 Die；
 #   同一组的 host-contract.json 用于实验 bundle 门控；版本差异不再阻断，只提示，不会因此拒绝铺配置。
 # 所以这里（以及面板）都把 profile 钉死为开启，手改 JSON 关掉也按开启处理。
-$SyncRequiredGroups = @('profile')
+$SyncRequiredGroups = @('profile', 'workspace', 'conversations')
 
 function Test-SyncRequiredGroup([string]$Group) { return ($SyncRequiredGroups -contains $Group) }
 

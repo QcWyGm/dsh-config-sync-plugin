@@ -277,6 +277,15 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 拉取落地加固：另一台机器拉取即可用（0.4.17）
+
+本版修复「另一台机器拉取同步后，左侧工作区与会话同时为空」的问题：
+
+- **根因**：工作区/会话组可被误取消勾选；本机根路径未确认、`link:` 插件本地目录缺失、bundle 未解析都可能让 apply 中途退出或让 DSH 读到空表；bundle 未解析时脚本非零退出还会触发 post-exit 回滚，把已经落地的工作区/会话一起擦掉。
+- **前置检查**：拉取在进入 apply 前检查工作区/会话同步组、`-SkipWorkspace`、本机 appRoot/workspaceHome 与 `link:` 插件目标，缺项直接给出明确诊断（写入 sync-notices.json），不再「拉完是空的」。
+- **不回滚**：bundle 未解析从「Die 停止」改为记 notice 并继续落地，避免把已同步的工作区/会话回滚掉；需要严格检查仍可用 `-ForceBundles`。
+- **落地验证**：apply 结束后核对 `workspaceIds` 非空、默认工作区 ID 不悬空、无重复路径、会话目录已铺回、projcache 无占位符残留、`link:` 插件齐备，结果写 `pull-landing-check.json` 并在面板可查。
+- **必需组**：工作区资料、会话记录与 profile 一起列为必需同步组，面板不可误取消，从源头堵住「勾选漏了导致空列表」。
 ### 修复跨机器拉取后 bundle 解析失败（0.4.16）
 
 本版修复目标机器拉取配置后 DSH 启动报 `cannot resolve profile bundle "dsh-config-sync-plugin"` 的问题：

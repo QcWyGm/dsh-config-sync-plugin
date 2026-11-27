@@ -2143,6 +2143,7 @@ window.__ModuleLoader__.load({
         history: M('历史里的超限文件', 'Oversized in history'),
         failed: M('失败', 'Failed'),
         skipped: M('跳过', 'Skipped'),
+        landing: M('落地检查', 'Landing check'),
       }[k] || k)
       const rows = (notices.items || []).map((it, i) => h('div', {
         key: `notice-${i}`,
