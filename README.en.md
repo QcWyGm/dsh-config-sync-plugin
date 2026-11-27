@@ -257,6 +257,10 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### 0.4.21 (2026-11-27)
+
+- Fix plugin update installation: 0.4.20 switched to pnpm publish, whose repacked tarball has a top-level <name>/ directory instead of npm's standard package/. The installer only accepted package/ and failed with 'unexpected package structure'. The updater now accepts both layouts (post-exit / install-plugin / apply extraction points).
+
 ### Pull-crash fix: int+string concatenation replaced with -f formatting (0.4.20)
 
 This release fixes a crash on the other machine when pulling with 0.4.19, followed by an automatic rollback that left "pull succeeded but workspace/sessions are empty":

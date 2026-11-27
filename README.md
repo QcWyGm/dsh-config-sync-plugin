@@ -277,6 +277,10 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 0.4.21（2026-11-27）
+
+- 修复插件更新安装失败：0.4.20 起改用 pnpm publish 发包，npm 兜底源下到的包顶层是「包名/」目录，旧安装器只认 npm 标准的「package/」，报「安装包结构不对」。更新器现兼容两种结构（post-exit / install-plugin / apply 三处解包点）。
+
 ### 拉取崩溃修复：int+字符串拼接改 -f 格式化（0.4.20）
 
 本版修复 0.4.19 在另一台机器上拉取崩溃、随后自动回滚导致「拉取成功但工作区/会话是空的」的问题：

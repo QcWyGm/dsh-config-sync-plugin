@@ -2148,5 +2148,18 @@ console.log('== 0.4.17：拉取落地加固（前置检查 + 自愈 + 落地验�
     cliS.includes("landing: M('落地检查', 'Landing check')"), 'client.js')
 }
 
+console.log('== 0.4.21：更新安装兼容 pnpm 重打包结构（顶层 包名/ 而非 package/）==')
+{
+  const peS = readFileSync(join(pluginRootSelf, 'runtime', 'post-exit.ps1'), 'utf8')
+  const ipS = readFileSync(join(pluginRootSelf, 'runtime', 'install-plugin.ps1'), 'utf8')
+  const apS2 = readFileSync(join(pluginRootSelf, 'runtime', 'apply.ps1'), 'utf8')
+  // 三个解包点都有「package/ 不存在时按 包名/ 兜底」的兼容分支（0.4.21 标志注释）
+  const compat = (s) => s.includes('pnpm 重打包形态') && s.includes("Join-Path $_.FullName 'package.json'")
+  check('post-exit 解包兼容 pnpm 重打包（包名/ 顶层）', compat(peS), 'post-exit.ps1')
+  check('install-plugin 解包兼容 pnpm 重打包（包名/ 顶层）', compat(ipS), 'install-plugin.ps1')
+  check('apply local-plugins 解压兼容 pnpm 重打包（包名/ 顶层）',
+    apS2.includes('pnpm publish 重打包') && apS2.includes("Join-Path $_.FullName 'package.json'"), 'apply.ps1')
+}
+
 process.exit(failures === 0 ? 0 : 1)
 

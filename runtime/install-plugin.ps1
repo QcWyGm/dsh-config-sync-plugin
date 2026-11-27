@@ -130,7 +130,16 @@ try {
   & $tar -xzf $pkgPath -C $stage *> $null
   if ($LASTEXITCODE -ne 0) { throw ("解包失败，退出码 {0}" -f $LASTEXITCODE) }
   $payload = Join-Path $stage 'package'
-  if (-not (Test-Path -LiteralPath $payload)) { throw '安装包结构不对（里面没有 package 目录）' }
+  if (-not (Test-Path -LiteralPath $payload)) {
+    # 0.4.21 兼容 pnpm publish 重打包形态：顶层是 包名/ 目录（如 dsh-config-sync-plugin/）
+    $alt = Get-ChildItem -LiteralPath $stage -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'package.json') } | Select-Object -First 1
+    if ($alt) {
+      $payload = $alt.FullName
+      Log ("包顶层是 {0}/（pnpm 重打包形态），按它安装" -f $alt.Name)
+    } else {
+      throw '安装包结构不对（里面没有 package 目录）'
+    }
+  }
   $newVersion = (Get-Content -LiteralPath (Join-Path $payload 'package.json') -Raw -Encoding utf8 | ConvertFrom-Json).version
   Log ("包内版本：{0}" -f $newVersion)
   if ($Version -and $newVersion -ne $Version) { throw ("安装包里的版本是 {0}，与清单 {1} 不一致" -f $newVersion, $Version) }

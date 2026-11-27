@@ -1470,8 +1470,12 @@ if ($needExtract.Count -gt 0) {
       New-Item -ItemType Directory -Path $out -Force | Out-Null
       & $tarExe -xzf $tgz -C $out
       if ($LASTEXITCODE -ne 0) { Die "解压失败：$tgz（tar 退出码 $LASTEXITCODE）" }
-      # npm tgz 的根目录是 package/，需要摊平
+      # npm tgz 的根目录是 package/；pnpm publish 重打包的根目录是 包名/ —— 两种都摊平（0.4.21）
       $pkgDir = Join-Path $out 'package'
+      if (-not (Test-Path -LiteralPath $pkgDir)) {
+        $altDir = Get-ChildItem -LiteralPath $out -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'package.json') } | Select-Object -First 1
+        if ($altDir) { $pkgDir = $altDir.FullName }
+      }
       if (Test-Path -LiteralPath $pkgDir) {
         $final = Join-Path $AppRoot $dirName
         if (Test-Path -LiteralPath $final) { Remove-Item -LiteralPath $final -Recurse -Force }
