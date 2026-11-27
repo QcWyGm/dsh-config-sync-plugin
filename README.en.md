@@ -257,6 +257,14 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Pull-crash fix: int+string concatenation replaced with -f formatting (0.4.20)
+
+This release fixes a crash on the other machine when pulling with 0.4.19, followed by an automatic rollback that left "pull succeeded but workspace/sessions are empty":
+
+- **Root cause**: one Test-PullLanding report string concatenated an int with text (`$bad + " sessions still contain placeholders…"`). PowerShell evaluates `int + string` by first treating the int as the left operand's semantics and trying to convert the string to Int32 — under StrictMode this throws a terminating error ("Cannot convert value … to type System.Int32"). Test-PullLanding died → sync pull exited 1 → post-exit treated it as "executor did not finish" and auto-rolled back (repo reset --hard + config snapshot restore), undoing the workspaces/sessions that had just landed. The local machine never hit that branch; the other machine (empty local sessions + projcache placeholders) did.
+- **Fix**: every int-adjacent concatenation is now `-f` formatted — 14 spots: apply (projcache count at the crash point, duplicate paths, session-dir counts, pending paths, overwrite lists, extra skills, mnemonic prune), capture (absolute-path warnings ×3), post-exit (backup name + verification log), restore (landing-list keys + manifest joins). Remaining string+string joins were type-audited and kept.
+- **Upgrade note**: after upgrading from 0.4.19 just pull again; data rolled back earlier lands again with this pull (the repo still had it — the rollback only touched the local copy).
+
 ### One-way contract adoption + landing hardening (0.4.19)
 
 This release fixes five classes of issues found in the full-code audit:

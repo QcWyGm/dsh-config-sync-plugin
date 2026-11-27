@@ -1315,7 +1315,7 @@ function Write-OutsideRootReport {
     items = @($items)
   }
   [IO.File]::WriteAllText($reportPath, ($obj | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
-  Warn ("有 " + $items.Count + " 处绝对路径不在任何已确认根下（配置 " + $nConf + " 处、工作区与会话 " + $nData + " 处）：换机器拉取时面板会逐条给出推荐目录。")
+  Warn ("有 {0} 处绝对路径不在任何已确认根下（配置 {1} 处、工作区与会话 {2} 处）：换机器拉取时面板会逐条给出推荐目录。" -f $items.Count, $nConf, $nData)
   Warn ("  清单：" + $reportPath + "（面板「本机路径」卡会列出来）")
   foreach ($it in @($items | Select-Object -First 5)) { Warn ("  - " + $it.file + " → " + $it.path) }
   if ($items.Count -gt 5) { Warn ("  …还有 " + ($items.Count - 5) + " 处") }

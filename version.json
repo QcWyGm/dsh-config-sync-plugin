@@ -1,11 +1,11 @@
 {
-  "version": "0.4.19",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.19/dsh-config-sync-plugin-0.4.19.tgz",
-  "tgzBytes": 475522,
-  "sha256": "8ff8d3dabbe6523cf26cf9b20a1d568b53b85155a8f331014599c66e024857de",
-  "npmSha256": "971361d891329333abeeb936b5bdc6dbc388da52",
+  "version": "0.4.20",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.20/dsh-config-sync-plugin-0.4.20.tgz",
+  "tgzBytes": 478270,
+  "sha256": "69a21b6cb29a61a803f1d6de7d93b7eab12e40d8e15a86b8878b822aff722c14",
+  "npmSha256": "PENDING_NPM",
   "releasedAt": "2026-11-27",
-  "notes": "契约单向采纳+落地链路加固：①capture 契约按 semver 单向采纳（本机>契约→升级，<→保持，修掉 nightly 升级后契约永久冻在旧版）；②初始化推送契约复用 Get-HostAppVersion（打包版不再把 Electron 框架版本误写成 appVersion）；③apply 四处硬编码版本/目录名映射改运行时推导（frozen-lockfile 不再因版本错位必挂）；④推送前先 fetch 核对云端领先即停（防镜像删除清掉他机独有会话/附件）；⑤-WorkspaceOnly 也先做 DSH 运行检查（防与运行中客户端互踩）。附带：git add 走 cmd 转发、push 分类补 non-fast-forward、capture cwd 归一统一执行器+$PID 临时名、notices byKind 补 landing、面板 AutoCard 请求统一走 callAuto、必需组单项勾选禁用。",
-  "notesEn": "One-way contract adoption + landing hardening: (1) capture adopts the host contract one-way by semver (newer local upgrades it, older keeps it — fixes contracts frozen on old versions after nightly auto-updates); (2) initialize-push contract reuses Get-HostAppVersion (packaged builds no longer write the Electron framework version as appVersion); (3) apply derives all previously hard-coded versions/directory maps at runtime (frozen-lockfile no longer fails on drift); (4) push fetches first and stops when the cloud is ahead (prevents mirror-delete wiping other machines' unrecoverable sessions/attachments); (5) -WorkspaceOnly now runs the DSH process check too (no more racing a live client). Also: git add via cmd forwarding, push failure classification adds non-fast-forward, capture cwd normalization unified executor + $PID temp names, notices byKind counts landing, panel AutoCard uses callAuto, required-group item checkboxes disabled.",
+  "notes": "0.4.19 拉取崩溃修复：①Test-PullLanding 报告文案里 int+字符串直接拼接（$bad + \" 个会话投影缓存…\"）在 StrictMode 下抛终止错误「无法将值…转换为 System.Int32」，导致 sync pull 退出 1、post-exit 按失败自动回滚——刚落地的会话/工作区被整段回滚，表现为「拉取成功但工作区和会话是空的」；全部改用 -f 格式化（apply/capture/post-exit/restore 共 14 处，其余 int 邻接拼接逐一核对）；②restore 落地清单/manifest 拼接同源加固。 upgrading from 0.4.19 的机器重新拉取即可，已被回滚的数据会随本次 pull 重新落地。",
+  "notesEn": "Fix for the 0.4.19 pull crash: (1) Test-PullLanding report strings concatenated an int with text ($bad + \" sessions still contain placeholders\"), which throws a terminating error under StrictMode (cannot convert value to System.Int32) — sync pull then exits 1 and post-exit auto-rolls back, undoing the sessions/workspaces that had just landed (the \"pull succeeded but workspace and sessions are empty\" symptom). All such concatenations now use -f formatting (14 spots across apply/capture/post-exit/restore, remaining int-adjacent joins audited); (2) restore landing lists/manifest joins hardened the same way. Machines upgrading from 0.4.19 just re-pull; data rolled back earlier lands again with this pull.",
   "minClient": "0.2.2-rc.2"
 }

@@ -412,8 +412,9 @@ if ($RollbackToPoint) {
         if ($d.Name.StartsWith('.')) { continue }
         if ($d.Name.StartsWith('@')) {
           foreach ($s in @(Get-ChildItem -LiteralPath $d.FullName -Directory -Force -ErrorAction SilentlyContinue)) {
-            $key = $d.Name + '/' + $s.Name
-            if (-not $wantDeps.ContainsKey($key)) { $dropList += ,@($s.FullName, ($d.Name + '--' + $s.Name), $key) }
+            # 0.4.20：string+string 安全；但若左侧是 int 会触发 int 优先转换崩溃，统一 -f
+            $key = '{0}/{1}' -f $d.Name, $s.Name
+            if (-not $wantDeps.ContainsKey($key)) { $dropList += ,@($s.FullName, ('{0}--{1}' -f $d.Name, $s.Name), $key) }
           }
           continue
         }
@@ -434,12 +435,12 @@ if ($RollbackToPoint) {
             if ($item.LinkType) {
               # 链接只删链接本身：穿进链接会把别的插件的安装目录一起删掉（实测过）
               [IO.Directory]::Delete($full)
-              $manifest.plugins += ($depName + '（链接已删，目标目录保留）')
+              $manifest.plugins += ('{0}（链接已删，目标目录保留）' -f $depName)
             } else {
               $dest = Join-Path $rbPlugins $safeName
               New-Item -ItemType Directory -Path $rbPlugins -Force | Out-Null
               Move-Item -LiteralPath $full -Destination $dest -Force
-              $manifest.plugins += ($depName + '（实体目录已移入 rollback\plugins）')
+              $manifest.plugins += ('{0}（实体目录已移入 rollback\plugins）' -f $depName)
             }
           } catch {
             $manifest.errors += ("$depName : " + $_.Exception.Message)

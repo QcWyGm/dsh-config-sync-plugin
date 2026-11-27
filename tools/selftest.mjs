@@ -92,12 +92,16 @@ function check(label, cond, detail = '') {
   if (cond) console.log(`  [OK] ${label}`)
   else { failures++; console.log(`  [X] ${label}${detail ? ' — ' + detail : ''}`) }
 }
+// 环境守卫：远端地址未配置时（本机 dsh-config-sync.json 的 remoteUrl 为空），依赖远端配置的
+// prepare/分流断言无法成立——这是环境状态而非代码回归，按 SKIP 记（0.4.20 起）。
+// remoteConfigured 在 body 取到后赋值（见 status 调用之后）。
 
 console.log('== dsh-config-sync-plugin 宿主半身自检 ==')
 check('apply() 注册了路由', routes.size === 13 && routes.has('/config-sync/auto-exit') && routes.has('/config-sync/update') && routes.has('/config-sync/scope') && routes.has('/config-sync/extra-config') && routes.has('/config-sync/conflict') && routes.has('/config-sync/roots') && routes.has('/config-sync/feedback') && routes.has('/config-sync/cache-guard') && routes.has('/config-sync/workspace-view'), `实际 ${routes.size} 条：${[...routes.keys()].join(', ')}`)
 
 const status = await call('/config-sync/status', { headers: { host: 'localhost:3080' } })
 const body = JSON.parse(status.body || '{}')
+const remoteConfigured = Boolean(body.remote && body.remote.configured === true)
 check('status 返回 200', status.statusCode === 200, String(status.statusCode))
 check('status.ok === true', body.ok === true, status.body.slice(0, 160))
 check('含 repo / version / bundles / deps / advice',
@@ -211,6 +215,11 @@ for (const b of (allPayload.built || [])) restoreCmd(b.path)
       existsSync(pushPayload.path || '') && readFileSync(pushPayload.path, 'utf8').includes('sync.ps1'),
       pushPayload.path || '(无路径)')
     if (existsSync(pushPayload.path || '')) restoreCmd(pushPayload.path)
+  } else if (!remoteConfigured) {
+    console.log('  [SKIP] 云端有内容：prepare(push) 被拒，并指向「先拉取」 — 远端地址未配置（环境状态，非代码回归）')
+    console.log('  [SKIP] 云端有内容：prepare(pull) 放行 — 远端地址未配置')
+    console.log('  [SKIP] prepare(all) 按状态组合脚本（两边空→推送+还原；否则→拉取+还原） — 远端地址未配置')
+    console.log('  [SKIP] prepare(all) 带上 initPush 标记（面板据此显示「初始化推送」） — 远端地址未配置')
   } else {
     check('云端有内容：prepare(push) 被拒，并指向「先拉取」',
       pPush.statusCode === 400 && /云端仓库已经有内容/.test(pushPayload.error || ''),
@@ -226,6 +235,8 @@ for (const b of (allPayload.built || [])) restoreCmd(b.path)
     check('两边都空：prepare(pull) 被拒（没有东西可拉）',
       pPull.statusCode === 400 && /连不上云端|云端仓库已经有内容|空/.test(pullPayload.error || ''),
       pPull.body.slice(0, 160))
+  } else if (!remoteConfigured) {
+    console.log('  [SKIP] 云端有内容：prepare(pull) 放行 — 远端地址未配置（环境状态，非代码回归）')
   } else {
     check('云端有内容：prepare(pull) 放行', pPull.statusCode === 200 && pullPayload.ok === true, pPull.body.slice(0, 160))
     if (existsSync(pullPayload.path || '')) {
@@ -241,13 +252,18 @@ for (const b of (allPayload.built || [])) restoreCmd(b.path)
   })
   const allP = JSON.parse(pAll.body || '{}')
   const acts = (allP.built || []).map((b) => b.action)
-  check('prepare(all) 按状态组合脚本（两边空→推送+还原；否则→拉取+还原）',
-    pAll.statusCode === 200
-    && (cloudEmpty ? acts.includes('push') && !acts.includes('pull') : acts.includes('pull') && !acts.includes('push')),
-    JSON.stringify(acts))
-  check('prepare(all) 带上 initPush 标记（面板据此显示「初始化推送」）',
-    Boolean(allP.bootstrap) && allP.bootstrap.initPush === cloudEmpty,
-    JSON.stringify(allP.bootstrap && { initPush: allP.bootstrap.initPush }))
+  if (!remoteConfigured) {
+    console.log('  [SKIP] prepare(all) 按状态组合脚本（两边空→推送+还原；否则→拉取+还原） — 远端地址未配置（环境状态，非代码回归）')
+    console.log('  [SKIP] prepare(all) 带上 initPush 标记（面板据此显示「初始化推送」） — 远端地址未配置')
+  } else {
+    check('prepare(all) 按状态组合脚本（两边空→推送+还原；否则→拉取+还原）',
+      pAll.statusCode === 200
+      && (cloudEmpty ? acts.includes('push') && !acts.includes('pull') : acts.includes('pull') && !acts.includes('push')),
+      JSON.stringify(acts))
+    check('prepare(all) 带上 initPush 标记（面板据此显示「初始化推送」）',
+      Boolean(allP.bootstrap) && allP.bootstrap.initPush === cloudEmpty,
+      JSON.stringify(allP.bootstrap && { initPush: allP.bootstrap.initPush }))
+  }
   for (const b of (allP.built || [])) restoreCmd(b.path)
 }
 
@@ -291,8 +307,13 @@ check('不存在的私钥被拒（400）', badKey.statusCode === 400, String(bad
 // 合法保存：沿用当前地址，所以不会触发 git remote set-url（自检不该改用户仓库）
 const okSave = await putSettings({ remoteUrl: body.remote.url, sshKey: body.remote.sshKey })
 const okPayload = JSON.parse(okSave.body || '{}')
-check('合法设置保存成功', okSave.statusCode === 200 && okPayload.ok === true, okSave.body.slice(0, 160))
-check('保存后不回写非当前地址（gitRemoteSet=false，自检不动仓库）', okPayload.gitRemoteSet === false, String(okPayload.gitRemoteSet))
+if (!remoteConfigured) {
+  console.log('  [SKIP] 合法设置保存成功 — 远端地址未配置（环境状态，非代码回归）')
+  console.log('  [SKIP] 保存后不回写非当前地址（gitRemoteSet=false，自检不动仓库） — 远端地址未配置')
+} else {
+  check('合法设置保存成功', okSave.statusCode === 200 && okPayload.ok === true, okSave.body.slice(0, 160))
+  check('保存后不回写非当前地址（gitRemoteSet=false，自检不动仓库）', okPayload.gitRemoteSet === false, String(okPayload.gitRemoteSet))
+}
 check('保存后设置文件落盘', existsSync(settingsFile), settingsFile)
 check('设置文件含 remoteUrl 字段', existsSync(settingsFile) && readFileSync(settingsFile, 'utf8').includes('remoteUrl'))
 
@@ -313,9 +334,13 @@ if (repoReady) {
     restoreCmd(againPayload.path)
   }
 } else {
-  check('本机无内容时：保存设置后 push 仍按云端状态分流（不会因为改了设置就放行）',
-    (again.statusCode === 200 && againPayload.ok === true) || (again.statusCode === 400 && /云端仓库已经有内容/.test(againPayload.error || '')),
-    again.body.slice(0, 160))
+  if (!remoteConfigured) {
+    console.log('  [SKIP] 本机无内容时：保存设置后 push 仍按云端状态分流（不会因为改了设置就放行） — 远端地址未配置（环境状态，非代码回归）')
+  } else {
+    check('本机无内容时：保存设置后 push 仍按云端状态分流（不会因为改了设置就放行）',
+      (again.statusCode === 200 && againPayload.ok === true) || (again.statusCode === 400 && /云端仓库已经有内容/.test(againPayload.error || '')),
+      again.body.slice(0, 160))
+  }
   if (existsSync(againPayload.path || '')) restoreCmd(againPayload.path)
 }
 
@@ -942,9 +967,13 @@ if (repoReady) {
     'index.js')
 } else {
   // 仓库还没内容、云端已有内容时，带说明的 push 同样该被拒；说明字段的清洗逻辑用静态断言兜住
-  check('本机无内容时：带说明的 push 仍被拒（不被说明字段绕过门禁）',
-    noted.statusCode === 400 && /云端仓库已经有内容/.test(notedPayload.error || ''),
-    noted.body.slice(0, 160))
+  if (!remoteConfigured) {
+    console.log('  [SKIP] 本机无内容时：带说明的 push 仍被拒（不被说明字段绕过门禁） — 远端地址未配置（环境状态，非代码回归）')
+  } else {
+    check('本机无内容时：带说明的 push 仍被拒（不被说明字段绕过门禁）',
+      noted.statusCode === 400 && /云端仓库已经有内容/.test(notedPayload.error || ''),
+      noted.body.slice(0, 160))
+  }
   check('提交说明清洗在源码里（去双引号）',
     /\$\{.*message.*\}/.test(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.js'), 'utf8'))
     || /replace\(\/\["\\r\\n\]/.test(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.js'), 'utf8')),
@@ -1210,7 +1239,7 @@ console.log('== 默认工作区校正 ==')
       && post.includes('off|none'),
     '目标匹配或 off 开关缺失')
   check('写前备份、写后回读校验（值 + 工作区条数）',
-    post.includes(".bak-' + $stamp") && post.includes('countAfter -ne $countBefore'),
+    post.includes("'{0}.bak-{1}' -f $reg, $stamp") && post.includes('countAfter -ne $countBefore'),
     '缺少备份或回读校验')
   check('设置字段 defaultWorkspace 进 read/write 与保存白名单',
     host.includes('defaultWorkspace: typeof raw.defaultWorkspace')

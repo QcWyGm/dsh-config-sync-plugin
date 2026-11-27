@@ -1070,7 +1070,7 @@ if (Test-Path -LiteralPath $skillsSrc) {
         -not (Test-Path -LiteralPath (Join-Path $skillsSrc $_.Name))
       } | Select-Object -ExpandProperty Name)
     if ($extraSkills.Count -gt 0) {
-      Warn ("本机另有 " + $extraSkills.Count + " 个仓库里没有的 Skill（未动，加 -PruneSkills 才删：" + ($extraSkills -join ', ') + "）")
+      Warn ("本机另有 {0} 个仓库里没有的 Skill（未动，加 -PruneSkills 才删：{1}）" -f $extraSkills.Count, ($extraSkills -join ', '))
     }
   }
 }
@@ -1164,7 +1164,7 @@ Ok "已还原插件设置 / 工作流 / 各插件配置"
 } else { Warn '跳过（未勾选同步）：插件设置 / 工作流 / 各插件配置' }
 if ($pendingItems.Count -gt 0) {
   $pf = Write-PendingPaths $DshHome $pendingItems
-  Warn ("有 " + $pendingItems.Count + " 项配置等待确认路径，本次未写入。已记到 " + $pf + "，到面板「本机路径」选好目录，之后再拉取一次即可。")
+  Warn ("有 {0} 项配置等待确认路径，本次未写入。已记到 {1}，到面板「本机路径」选好目录，之后再拉取一次即可。" -f $pendingItems.Count, $pf)
 } elseif (Test-SyncGroupEnabled $Scope 'settings') {
   Clear-PendingPaths $DshHome
 }
@@ -1177,9 +1177,9 @@ if ($overwriteItems.Count -gt 0) {
     items = @($overwriteItems)
   }
   [IO.File]::WriteAllText($overwriteReport, ($ovObj | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
-  Warn ("有 " + $overwriteItems.Count + " 份配置被仓库版本覆盖（本机改动已先备份）：")
+  Warn ("有 {0} 份配置被仓库版本覆盖（本机改动已先备份）：" -f $overwriteItems.Count)
   foreach ($it in @($overwriteItems | Select-Object -First 5)) { Warn ("  - " + $it.label + "：" + $it.repo + "（备份 " + $it.backup + "）") }
-  if ($overwriteItems.Count -gt 5) { Warn ("  …还有 " + ($overwriteItems.Count - 5) + " 份，清单：" + $overwriteReport) }
+  if ($overwriteItems.Count -gt 5) { Warn ("  …还有 {0} 份，清单：{1}" -f ($overwriteItems.Count - 5), $overwriteReport) }
   Warn "  想保留本机改动就先「推送」再「拉取」，别反过来。"
 } else {
   if (Test-Path -LiteralPath $overwriteReport) { try { Remove-Item -LiteralPath $overwriteReport -Force } catch { } }
@@ -1214,9 +1214,9 @@ if (-not (Test-SyncGroupEnabled $Scope 'mnemon')) {
   if ($extra.Count -gt 0) {
     if ($PruneMnemon) {
       $extra | ForEach-Object { Remove-Item -LiteralPath (Join-Path $mnemonDst $_) -Force }
-      Warn ("已按 -PruneMnemon 删除本机多出的 " + $extra.Count + " 个记忆文件：" + ($extra -join ', '))
+      Warn ("已按 -PruneMnemon 删除本机多出的 {0} 个记忆文件：{1}" -f $extra.Count, ($extra -join ', '))
     } else {
-      Warn ("本机另有 " + $extra.Count + " 个仓库里没有的记忆文件（未动，建议稍后在主力机 capture：" + ($extra -join ', ') + "）")
+      Warn ("本机另有 {0} 个仓库里没有的记忆文件（未动，建议稍后在主力机 capture：{1}）" -f $extra.Count, ($extra -join ', '))
     }
   }
   $mnCount = (Get-ChildItem -LiteralPath $mnemonDst -Recurse -File -Force | Measure-Object).Count
@@ -1675,7 +1675,7 @@ function Test-PullLanding {
     }
     if ($dup.Count -gt 0) {
       $issues += 'duplicate-path'
-      Add-SyncNotice -Kind 'landing' -Path 'tables.workspaces' -Reason ("登记表里有 " + $dup.Count + " 条重复路径，DSH 会整表判坏。")
+      Add-SyncNotice -Kind 'landing' -Path 'tables.workspaces' -Reason ("登记表里有 {0} 条重复路径，DSH 会整表判坏。" -f $dup.Count)
     }
   }
   # 4) 会话目录：仓库有、本机 0 个 → 上层读不出会话
@@ -1685,7 +1685,7 @@ function Test-PullLanding {
   $localDirs = if (Test-Path -LiteralPath $localSess) { @(Get-ChildItem -LiteralPath $localSess -Directory -Force).Count } else { 0 }
   if ($repoDirs -gt 0 -and $localDirs -eq 0) {
     $issues += 'session-dirs-0'
-    Add-SyncNotice -Kind 'landing' -Path 'sessions' -Reason ("仓库有 " + $repoDirs + " 个会话目录，本机 sessions 为 0 个。")
+    Add-SyncNotice -Kind 'landing' -Path 'sessions' -Reason ("仓库有 {0} 个会话目录，本机 sessions 为 0 个。" -f $repoDirs)
   }
   # 5) projcache 占位符残留：apply 故意不同步 projcache（让 DSH 从 session log 重建），
   #    但本机若留着带占位符的旧缓存，投影同样取不到数据 —— 只提示、不阻断。
@@ -1698,7 +1698,9 @@ function Test-PullLanding {
     }
     if ($bad -gt 0) {
       $issues += 'projcache-token'
-      Add-SyncNotice -Kind 'landing' -Path 'storages/session_projcache/sessions' -Reason ($bad + " 个会话投影缓存仍含占位符，DSH 启动时会重建。")
+      # 0.4.20：$bad 是 int，int+string 拼接在本机 PTC/StrictMode 场景会抛终止错误
+      # （"无法将值…转换为类型 System.Int32"），把整个 pull 收尾打成失败。一律 -f 格式化。
+      Add-SyncNotice -Kind 'landing' -Path 'storages/session_projcache/sessions' -Reason ("{0} 个会话投影缓存仍含占位符，DSH 启动时会重建。" -f $bad)
     }
   }
   # 6) bundle / link：复用刚才自检段算出的 $unresolved

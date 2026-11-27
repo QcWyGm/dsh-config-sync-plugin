@@ -440,7 +440,8 @@ function Set-DefaultWorkspace {
     if ($cur -eq $target) { Log ("默认工作区已经是 {0}（{1}），不动" -f (Get-NormPath ([string]$targetEntry.path)), $target); return }
 
     $stamp = (Get-Date).ToString('yyyyMMddHHmmss')
-    Copy-Item -LiteralPath $reg -Destination ($reg + '.bak-' + $stamp) -Force
+    # 0.4.20：int+string 拼接在部分环境会抛终止错误（int 优先吃掉整个表达式），一律 -f
+    Copy-Item -LiteralPath $reg -Destination ('{0}.bak-{1}' -f $reg, $stamp) -Force
     $obj.global.defaultWorkspaceId = $target
     $text = (($obj | ConvertTo-Json -Depth 12) -replace "`r`n", "`n") + "`n"
     [IO.File]::WriteAllText($reg, $text, (New-Object Text.UTF8Encoding($false)))
@@ -450,7 +451,7 @@ function Set-DefaultWorkspace {
     $countBefore = @($tables.PSObject.Properties).Count
     $countAfter = @($back.tables.workspaces.PSObject.Properties).Count
     if ([string]$back.global.defaultWorkspaceId -ne $target -or $countAfter -ne $countBefore) {
-      Log ("默认工作区写入后校验不通过（{0} 个工作区，期望 {1} 个），已留备份 {2}" -f $countAfter, $countBefore, ($reg + '.bak-' + $stamp))
+      Log ("默认工作区写入后校验不通过（{0} 个工作区，期望 {1} 个），已留备份 {2}" -f $countAfter, $countBefore, ('{0}.bak-{1}' -f $reg, $stamp))
       return
     }
     Log ("默认工作区：{0} → {1}（{2}），重启后新会话落在 {3}" -f $cur, $target, [string]$targetEntry.title, [string]$targetEntry.path)

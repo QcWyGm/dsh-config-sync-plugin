@@ -277,6 +277,14 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 拉取崩溃修复：int+字符串拼接改 -f 格式化（0.4.20）
+
+本版修复 0.4.19 在另一台机器上拉取崩溃、随后自动回滚导致「拉取成功但工作区/会话是空的」的问题：
+
+- **根因**：Test-PullLanding 的报告文案里有一处 int 与字符串直接拼接（`$bad + " 个会话投影缓存仍含占位符…"`）。PowerShell 对 `int + string` 会先把左侧 int 当作左操作数语义、试图把右侧字符串转成 Int32，StrictMode 下直接抛终止错误「无法将值"个会话投影缓存…"转换为类型 System.Int32」。Test-PullLanding 挂掉 → sync pull 退出码 1 → post-exit 按「执行体没有正常跑完」处理，触发自动回滚（仓库 reset --hard + 配置快照还原），刚落地的工作区/会话数据被整段撤销。本机不崩是因为该分支只有 landing 提示路径差一层才走到，另一台机器（本机 sessions 为空 + projcache 有占位符）恰好命中。
+- **修复**：所有 int 邻接拼接统一改 `-f` 格式化，共 14 处——apply 的 projcache 计数（崩溃点）/重复路径/会话目录计数/待确认路径/覆盖清单/Skill 多出/记忆文件清理，capture 的绝对路径告警三连，post-exit 的备份名与校验日志，restore 的落地清单 key/manifest 拼接。其余 string+string 拼接逐一核对过类型，安全保留。
+- **升级指引**：从 0.4.19 升级后重新点「立即拉取」即可；此前被回滚掉的数据会随本次 pull 重新落地（仓库里还有，回滚只动了本地）。
+
 ### 契约单向采纳 + 落地链路加固（0.4.19）
 
 本版集中修复通读审计发现的五类问题：
