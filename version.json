@@ -3,7 +3,7 @@
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.22/dsh-config-sync-plugin-0.4.22.tgz",
   "tgzBytes": 479532,
   "sha256": "3c6142450c2992c32a1316e7375ba2cabab4621144a184cf56da66fb67b207f2",
-  "npmSha256": "",
+  "npmSha256": "79ed853abc8e22bd59f42396f2d6d667e6d250894df3e654a3f0efa027f2612b",
   "releasedAt": "2026-11-28",
   "notes": "默认工作区跨机收敛：老仓库快照里 default-workspace 条目带着已废弃的 {{ROOT:userHome}} 展开产物（如 C:\\Users\\<user>\\Documents\\...），而本机 Documents 重定向后默认工作区实际在别处时，两条 path 不同导致同路径收敛认不出来，拉取后登记表出现两个 default-workspace（其中一条指向本机不存在的目录，会话落点也缺失）。apply 现按 slot/title=default-workspace 语义把仓库条目并入本机默认工作区条目后丢弃；本机没有默认工作区条目时保留仓库条目（首次迁移不受影响）。",
   "notesEn": "Cross-machine default-workspace convergence: legacy repo snapshots carry a default-workspace entry expanded from the obsolete {{ROOT:userHome}} token (e.g. C:\\Users\\<user>\\Documents\\...). When the local Documents folder is redirected, the real default workspace lives elsewhere, the two paths differ so the existing same-path convergence misses it and the merged registry ends up with two default-workspace entries, one pointing to a nonexistent directory with no session landing. apply now merges the repo entry into the local default-workspace entry by slot/title semantics and drops the ghost; the repo entry is kept when the machine has no default-workspace entry yet (first migration unaffected).",
