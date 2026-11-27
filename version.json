@@ -3,7 +3,7 @@
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.21/dsh-config-sync-plugin-0.4.21.tgz",
   "tgzBytes": 478270,
   "sha256": "2f88da9c6b3a927775c72832821d0bcaa3b863fadbd35316f41377ffe3abd86e",
-  "npmSha256": "PENDING_NPM",
+  "npmSha256": "7a512c304c8a498500da649a22f94b87ffc91089769e1bad89dd80bd8c04deb1",
   "releasedAt": "2026-11-27",
   "notes": "修复插件更新安装失败：0.4.20 起改用 pnpm publish 发包，npm 兜底源下到的包顶层目录是「包名/」而不是 npm 标准的「package/」，旧安装器只认 package/ 导致「安装包结构不对」。更新器现兼容两种结构（npm package/ 与 pnpm 重打包 包名/），覆盖 post-exit / install-plugin / apply 三处解包点。",
   "notesEn": "Fix plugin update installation: since 0.4.20 packages are published via pnpm, whose repacked tarball has a top-level <name>/ directory instead of npm's standard package/. The installer only accepted package/ and failed with 'unexpected package structure'. The updater now accepts both layouts (npm package/ and pnpm repacked <name>/) across post-exit / install-plugin / apply extraction points.",
