@@ -277,6 +277,10 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 0.4.23（2026-11-28）
+
+- **跨机隐藏对齐**：修复「另一台机器拉取后工作台多出 MnemonSkills 会话 / 未命名会话」。Mnemon 后台会话（id 前缀 `mnemon-*`）与子代理会话（纯 uuid id）本来就会被登记进各机 workspace.json 并随同步带到对端；DSH 对 `origin=subagent` 与空会话有视图级折叠，但同步来的会话不在折叠边界时（如 mnemon-task 带 turn/start、同步日志里的首条用户消息让空会话判定失效），对端就会把它们列出来。拉取时现在把这两类会话 id 并进 `global.archivedSessionIds`（DSH 原生隐藏通道，列表/搜索/打开全链路拦截）：**会话体照常同步保留，只是工作台不再显示**；主会话（`session-` 前缀）不受影响，本机手动隐藏/归档的会话照常保留。升级后重新点「立即拉取」即自动对齐。
+
 ### 0.4.22（2026-11-28）
 
 - **默认工作区跨机收敛**：修复「另一台机器拉取后登记表里出现两个 default-workspace（幽灵条目指向本机不存在的 C:\Users\... 路径，其 2 个会话没有落点目录）」。老仓库快照里 default-workspace 条目带着已废弃的 `{{ROOT:userHome}}` 展开产物，而本机 Documents 重定向后默认工作区实际在别处（如 `D:\Backup\Documents\...`），两条 path 不同 → 原有的同路径收敛认不出来。apply 现按 slot/title=default-workspace 语义把仓库条目的三组会话 id 并入本机默认工作区条目后丢弃仓库条目；本机没有默认工作区条目时保留仓库条目（首次迁移不受影响）。升级后重新点「立即拉取」即自动收敛，幽灵条目消失、默认工作区会话数变为「本机 + 仓库」之和。

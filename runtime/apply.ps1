@@ -404,6 +404,23 @@ function Sync-WorkspaceApply {
   if ($defaultSids.Count -gt 0 -and $dwId -and $localTable.Contains($dwId)) {
     $localTable[$dwId]['sessionIds'] = @(@($localTable[$dwId]['sessionIds']) + $defaultSids | Where-Object { $_ -ne '' } | Sort-Object -Unique)
   }
+  # 跨机隐藏对齐（0.4.23）：Mnemon 后台会话（id 前缀 mnemon-*）与子代理会话（纯 uuid id，无 session- 前缀）
+  # 会被登记进各机 workspace.json 并随同步带到对端。DSH UI 对 origin=subagent / blank 会话有视图级折叠，
+  # 但同步来的会话不在折叠边界时（如 mnemon-task-v1-* 带 turn/start、同步日志里的首条用户消息让 blank=false），
+  # 对端工作台就会列出「MnemonSkills 会话」和「未命名会话」。这两类会话都应同步保留（会话体不删），
+  # 但确定性不显示：把它们的 id 并进 global.archivedSessionIds（DSH 原生隐藏通道，列表/搜索/打开全链路拦截）。
+  # 判定只看 id 形态、不解会话头：A 机 401 个磁盘会话样本中主会话恒为 session- 前缀，
+  # mnemon-* 与纯 uuid（不带 session- 前缀）即两类后台会话，无例外。
+  $allSids = @()
+  foreach ($e2 in $plan) { $allSids += @($e2.SessionIds) }
+  foreach ($k2 in @($sidByWsDir.Keys)) { $allSids += @($sidByWsDir[$k2]) }
+  $allSids += $defaultSids
+  foreach ($id2 in @($localTable.Keys)) { $allSids += @($localTable[$id2]['sessionIds']) }
+  $autoHide = @($allSids | ForEach-Object { [string]$_ } | Where-Object { $_ -ne '' -and $_ -notlike 'session-*' })
+  if ($autoHide.Count -gt 0) {
+    $gArchAll += $autoHide
+    Ok ('跨机隐藏对齐：{0} 个 Mnemon/子代理会话已标记隐藏（同步保留、工作台不显示）' -f @($autoHide | Sort-Object -Unique).Count)
+  }
   $localGlobal['initialized'] = $true
   $localGlobal['workspaceIds'] = $ids
   $localGlobal['archivedSessionIds'] = @($gArchAll | Sort-Object -Unique)
