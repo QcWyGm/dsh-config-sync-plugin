@@ -1,11 +1,11 @@
 {
-  "version": "0.4.17",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.17/dsh-config-sync-plugin-0.4.17.tgz",
-  "tgzBytes": 468665,
-  "sha256": "809800786e46c99c76cbdd2b7ca84fdcc0d8eb9c8437900447aaee69734e443b",
+  "version": "0.4.18",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.18/dsh-config-sync-plugin-0.4.18.tgz",
+  "tgzBytes": 470061,
+  "sha256": "687877bd28af84e928a65aad5734429c386bc5bb46d46441def56621b241445c",
   "npmSha256": "88aa7cb1e0d6f7136e7cd2e51912a199e42903148718db972fd73d4897f28e5b",
   "releasedAt": "2026-11-27",
-  "notes": "拉取落地加固：工作区与会话纳入必需同步组（不可误取消）；拉取前检查 scope、本机根路径与 link: 插件前置条件并给出明确诊断；bundle 未解析不再触发回滚、避免擦掉已落地的工作区/会话；落地后校验工作区登记表（workspaceIds、默认工作区、重复路径）与会话目录并写 pull-landing-check.json，让另一台机器拉取即能用。",
-  "notesEn": "Pull landing hardening: workspace and conversations become required sync groups; preflight checks scope, local roots and link: plugin prerequisites before pull with clear diagnostics; unresolved bundles no longer trigger rollback that wipes landed workspace/session data; post-landing verification checks the workspace registry (workspaceIds, default workspace, duplicate paths) and session directories, writing pull-landing-check.json so a second machine is usable right after pull.",
+  "notes": "修复 0.4.17 拉取前置检查过严：link: 插件归档检查同时认 .tgz/.zip（仓库里实际是 .zip，旧版只查 .tgz 误报缺失）；workspaceHome 目录不存在时自动补建而非拦死拉取。避免目标机首次拉取因前置检查失败被回滚、工作区/会话落不了地。",
+  "notesEn": "Fix over-strict 0.4.17 pull preflight: link: plugin archives now accept .tgz/.zip (repos actually use .zip; old check only looked for .tgz and falsely reported missing); workspaceHome directory is auto-created instead of blocking pull. Prevents first pull on a second machine from failing preflight and rolling back, leaving workspace/sessions unlanded.",
   "minClient": "0.2.2-rc.2"
 }

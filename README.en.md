@@ -257,6 +257,14 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Fix over-strict pull preflight (0.4.18)
+
+This release fixes the 0.4.17 preflight false-failure that rolled back pulls on the target machine:
+
+- **link archive false-missing**: preflight only looked for `.tgz` archives, but `dsh-our-free-model-2.8.0` / `dsh-purge-1.4.0` are `.zip` in the repo. Archives existed but were reported missing, blocking the pull. Now accepts both `.tgz` and `.zip`, matching apply's extraction.
+- **workspaceHome false-fail**: on a fresh machine the workspace root does not exist yet — normal, apply creates it. Now auto-creates the directory and uses the default `~/Documents/deepseek-harness` when unset, instead of blocking.
+- **Effect**: first pull on the second machine no longer fails preflight and rolls back; workspace and sessions land normally.
+
 ### Pull landing hardening: usable right after pull on a second machine (0.4.17)
 
 Fixes "workspace and conversations both empty after pulling sync on another machine":

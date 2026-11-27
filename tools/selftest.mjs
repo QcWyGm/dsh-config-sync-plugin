@@ -2091,6 +2091,11 @@ console.log('== 0.4.17：拉取落地加固（前置检查 + 自愈 + 落地验�
   check('前置检查覆盖 scope/root/link 三类',
     syncS.includes("Test-SyncGroupEnabled $scopeNow $g") && syncS.includes("@('workspace', 'conversations')")
     && syncS.includes('Get-SyncRoots') && syncS.includes("link:*"), 'sync.ps1')
+  // 0.4.18：link 归档必须同时认 .tgz/.zip；workspaceHome 目录不存在时补建而非拦死
+  check('前置检查 link 归档同时认 .tgz/.zip（不误报仓库里存在的 .zip）',
+    syncS.includes('$archTgz') && syncS.includes('$archZip') && syncS.includes('$hasArch'), 'sync.ps1')
+  check('前置检查 workspaceHome 缺目录时自动补建而非失败',
+    syncS.includes("已补建 workspaceHome") && syncS.includes("Documents\\deepseek-harness"), 'sync.ps1')
 
   // bundle 不再 Die/回滚
   check('bundle 未解析不再 Die（记 notice + 继续落地）',

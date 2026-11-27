@@ -86,14 +86,29 @@ function Test-PullPreflight {
     Add-SyncNotice -Kind 'landing' -Path 'switch/SkipWorkspace' -Reason '本次带了 -SkipWorkspace，会整段跳过工作区与会话。'
     $fail += '-SkipWorkspace'
   }
-  # 2) 根路径：appRoot / workspaceHome 必须存在
+  # 2) 根路径：
+  #    appRoot —— DSH 安装目录，开头 Resolve-DshAppRoot 已确认，这里再挡一道（必须存在）。
+  #    workspaceHome —— 工作区资料根，全新机器第一次拉取时还不存在是正常的：apply 铺资料时会
+  #                     自动建目录。所以"目录不存在"不拦，只有"根本没确认出路径值"才给提示，
+  #                     而且也不拦拉取（否则 B 机永远卡在第一次拉取，工作区一个都落不了地）。
   $roots = Get-SyncRoots $DshHome $AppRoot $WorkspaceHome
-  foreach ($k in @('appRoot', 'workspaceHome')) {
-    $rv = [string]$roots.$k
-    if (-not $rv -or -not (Test-Path -LiteralPath $rv)) {
-      Add-SyncNotice -Kind 'landing' -Path ("roots/" + $k) -Reason ("本机根 " + $k + " 未确认或目录不存在：" + $rv + "。")
-      $fail += ($k + ' 未确认')
-    }
+  $rvApp = [string]$roots.appRoot
+  if (-not $rvApp -or -not (Test-Path -LiteralPath $rvApp)) {
+    Add-SyncNotice -Kind 'landing' -Path 'roots/appRoot' -Reason ("本机 appRoot 未确认或目录不存在：" + $rvApp + "。")
+    $fail += 'appRoot 未确认'
+  }
+  $rvWs = [string]$roots.workspaceHome
+  if (-not $rvWs) {
+    # 没有工作区根值时给个可自动落地默认值，并写回 roots 供后续 capture 归一使用
+    $rvWs = Join-Path $env:USERPROFILE 'Documents\deepseek-harness'
+    $roots.workspaceHome = $rvWs
+    Save-SyncRoots $DshHome $roots
+    Warn ("workspaceHome 未确认，已用默认值：$rvWs（目录会在拉取落地时自动建）")
+  }
+  if (-not (Test-Path -LiteralPath $rvWs)) {
+    # 目录尚不存在：直接补建，不当成失败条件
+    try { New-Item -ItemType Directory -Path $rvWs -Force | Out-Null; Ok "已补建 workspaceHome 目录：$rvWs" }
+    catch { Warn "补建 workspaceHome 失败（不拦拉取）：$rvWs — $($_.Exception.Message)" }
   }
   if (@($roots.confirmed).Count -eq 0) {
     Add-SyncNotice -Kind 'landing' -Path 'config-sync-roots.json' -Reason 'confirmed 为空，请在面板确认本机路径。'
@@ -108,10 +123,17 @@ function Test-PullPreflight {
         if ($v -like 'link:*' -and $nm -ne 'dsh-config-sync-plugin') {
           $leaf = [IO.Path]::GetFileName(($v -replace '^link:', ''))
           if ($leaf -and -not (Test-Path -LiteralPath (Join-Path ([string]$roots.appRoot) $leaf))) {
-            $arch = Join-Path $RepoRoot ("local-plugins\" + $leaf + ".tgz")
-            if (-not (Test-Path -LiteralPath $arch)) {
-              Add-SyncNotice -Kind 'landing' -Path $nm -Reason ("link 目标 " + $leaf + " 不在 AppRoot 下、仓库也无归档，pnpm install 会失败。")
+            # apply.ps1 的 local-plugins 解压同时认 .tgz 与 .zip（见 apply.ps1:1371-1445），
+            # 前置检查必须一致：两种归档任一存在就算齐备。旧版只查 .tgz，把仓库里实际存在的
+            # dsh-our-free-model-2.8.0.zip / dsh-purge-1.4.0.zip 误报成缺失，直接拦死拉取。
+            $archTgz = Join-Path $RepoRoot ("local-plugins\" + $leaf + ".tgz")
+            $archZip = Join-Path $RepoRoot ("local-plugins\" + $leaf + ".zip")
+            $hasArch = (Test-Path -LiteralPath $archTgz) -or (Test-Path -LiteralPath $archZip)
+            if (-not $hasArch) {
+              Add-SyncNotice -Kind 'landing' -Path $nm -Reason ("link 目标 " + $leaf + " 不在 AppRoot 下、仓库也无 .tgz/.zip 归档，pnpm install 会失败。")
               $fail += ("link:" + $leaf + " 缺失")
+            } else {
+              Ok ("link 目标 " + $leaf + " 本地目录缺失，但仓库有归档，apply 会解压部署")
             }
           }
         }
