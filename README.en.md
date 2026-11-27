@@ -257,6 +257,10 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### 0.4.22 (2026-11-28)
+
+- **Cross-machine default-workspace convergence**: fixes "after pulling on the other machine, the registry contains two default-workspace entries, one a ghost pointing to C:\Users\...\Documents\deepseek-harness\default-workspace which does not exist locally, with its 2 sessions having no landing directory". Legacy repo snapshots carry the default-workspace entry expanded from the obsolete `{{ROOT:userHome}}` token; when the local Documents folder is redirected (e.g. `D:\Backup\Documents\...`) the two paths differ, so the existing same-path convergence misses it. apply now merges the repo entry's session id sets into the local default-workspace entry by slot/title semantics and drops the ghost; the repo entry is kept when the machine has no default-workspace entry yet (first migration unaffected). After upgrading, click "Pull now" once and the ghost entry disappears automatically.
+
 ### 0.4.21 (2026-11-27)
 
 - Fix plugin update installation: 0.4.20 switched to pnpm publish, whose repacked tarball has a top-level <name>/ directory instead of npm's standard package/. The installer only accepted package/ and failed with 'unexpected package structure'. The updater now accepts both layouts (post-exit / install-plugin / apply extraction points).

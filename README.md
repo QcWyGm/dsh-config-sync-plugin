@@ -277,6 +277,10 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 0.4.22（2026-11-28）
+
+- **默认工作区跨机收敛**：修复「另一台机器拉取后登记表里出现两个 default-workspace（幽灵条目指向本机不存在的 C:\Users\... 路径，其 2 个会话没有落点目录）」。老仓库快照里 default-workspace 条目带着已废弃的 `{{ROOT:userHome}}` 展开产物，而本机 Documents 重定向后默认工作区实际在别处（如 `D:\Backup\Documents\...`），两条 path 不同 → 原有的同路径收敛认不出来。apply 现按 slot/title=default-workspace 语义把仓库条目的三组会话 id 并入本机默认工作区条目后丢弃仓库条目；本机没有默认工作区条目时保留仓库条目（首次迁移不受影响）。升级后重新点「立即拉取」即自动收敛，幽灵条目消失、默认工作区会话数变为「本机 + 仓库」之和。
+
 ### 0.4.21（2026-11-27）
 
 - 修复插件更新安装失败：0.4.20 起改用 pnpm publish 发包，npm 兜底源下到的包顶层是「包名/」目录，旧安装器只认 npm 标准的「package/」，报「安装包结构不对」。更新器现兼容两种结构（post-exit / install-plugin / apply 三处解包点）。

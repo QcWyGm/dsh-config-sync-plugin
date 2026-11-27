@@ -351,6 +351,40 @@ function Sync-WorkspaceApply {
       $localTable.Remove($other)
     }
   }
+  # 默认工作区跨机收敛（0.4.22）：老仓库快照里 default-workspace 条目可能带着
+  # 已废弃的 {{ROOT:userHome}} 展开产物（如 C:\Users\<user>\Documents\...），而本机
+  # Documents 重定向后默认工作区实际在别处（如 D:\Backup\Documents\...）。两条 path
+  # 不同 → 上面的同路径收敛认不出来 → 本机出现两个「default-workspace」，其中一条
+  # 指向本机不存在的目录（幽灵条目，会话落点也缺失）。这里按 slot/title=default-workspace
+  # 语义收敛：仓库条目并入本机已有的默认工作区条目后丢弃；本机没有任何
+  # default-workspace 条目时保留仓库条目（首次迁移场景）。
+  $isDefaultWsPath = {
+    param($p)
+    if (-not $p) { return $false }
+    $leaf = ($p -replace '/', '\').TrimEnd('\') -split '\\' | Select-Object -Last 1
+    return ([string]$leaf -ieq 'default-workspace')
+  }
+  $repoDefaultIds = @()
+  foreach ($e in $plan) {
+    if (([string]$e.Slot -ieq 'default-workspace') -or ([string]$e.Title -ieq 'default-workspace')) { $repoDefaultIds += $e.Id }
+  }
+  $localDefaultCands = @()
+  foreach ($id in @($localTable.Keys)) {
+    if ($localIdSet.ContainsKey([string]$id) -and (& $isDefaultWsPath ([string]$localTable[$id]['path'])) -and -not $mfIdSet.ContainsKey([string]$id)) {
+      $localDefaultCands += [string]$id
+    }
+  }
+  foreach ($rid in $repoDefaultIds) {
+    if (-not $localTable.Contains($rid)) { continue }
+    $target = @($localDefaultCands | Where-Object { $_ -ne $rid }) | Select-Object -First 1
+    if (-not $target) { continue }   # 本机没有自己的默认工作区 → 保留仓库条目（首次迁移）
+    $localTable[$target]['sessionIds']         = @(@($localTable[$target]['sessionIds'])         + @($localTable[$rid]['sessionIds'])         | Where-Object { $_ -ne '' } | Sort-Object -Unique)
+    $localTable[$target]['archivedSessionIds'] = @(@($localTable[$target]['archivedSessionIds']) + @($localTable[$rid]['archivedSessionIds']) | Where-Object { $_ -ne '' } | Sort-Object -Unique)
+    $localTable[$target]['pinnedSessionIds']   = @(@($localTable[$target]['pinnedSessionIds'])   + @($localTable[$rid]['pinnedSessionIds'])   | Where-Object { $_ -ne '' } | Sort-Object -Unique)
+    Warn ('默认工作区跨机收敛：仓库条目 {0}（path {1}，本机不存在）已并入本机默认工作区 {2}（path {3}），丢弃仓库条目' -f $rid, $localTable[$rid]['path'], $target, $localTable[$target]['path'])
+    $dropped[$rid] = $true
+    $localTable.Remove($rid)
+  }
   $ids = @($localTable.Keys | ForEach-Object { [string]$_ } | Where-Object { -not $dropped.ContainsKey($_) })
   $mfDefault = if ($mf.global) { [string]$mf.global.defaultWorkspaceId } else { '' }
   $localDefault = if ($localGlobal.Contains('defaultWorkspaceId')) { [string]$localGlobal['defaultWorkspaceId'] } else { '' }
