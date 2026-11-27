@@ -3,7 +3,7 @@
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.18/dsh-config-sync-plugin-0.4.18.tgz",
   "tgzBytes": 470061,
   "sha256": "687877bd28af84e928a65aad5734429c386bc5bb46d46441def56621b241445c",
-  "npmSha256": "88aa7cb1e0d6f7136e7cd2e51912a199e42903148718db972fd73d4897f28e5b",
+  "npmSha256": "365de4b6804babdc97ee7fafa817dbc3dbf1e84101177c19826c420a37b69647",
   "releasedAt": "2026-11-27",
   "notes": "修复 0.4.17 拉取前置检查过严：link: 插件归档检查同时认 .tgz/.zip（仓库里实际是 .zip，旧版只查 .tgz 误报缺失）；workspaceHome 目录不存在时自动补建而非拦死拉取。避免目标机首次拉取因前置检查失败被回滚、工作区/会话落不了地。",
   "notesEn": "Fix over-strict 0.4.17 pull preflight: link: plugin archives now accept .tgz/.zip (repos actually use .zip; old check only looked for .tgz and falsely reported missing); workspaceHome directory is auto-created instead of blocking pull. Prevents first pull on a second machine from failing preflight and rolling back, leaving workspace/sessions unlanded.",
