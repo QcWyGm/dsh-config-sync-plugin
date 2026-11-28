@@ -3,7 +3,7 @@
  *
  * 两个入口，共用一套数据：
  *   1) 左侧栏一行（slot: sidebar.panellist，id = config-sync）+ 配对的 main 面板，
- *      点开就是"配置同步"整页：仓库状态、版本契约、bundle 体检、生成退出后执行的脚本。
+ *      点开就是"配置同步"整页：仓库状态、版本契约、bundle 体检、立即推送/拉取与自动同步。
  *   2) 设置 → 通用 里的一行摘要（slot: settings.general.item），保留给习惯从设置进的人。
  *
  * 契约说明（从 dshmarket / dsh-mnemon 的实现里读出来的）
@@ -336,20 +336,6 @@ window.__ModuleLoader__.load({
     // 函数化：每次请求现读语言，避免面板加载后才切换语言时 POST 仍带旧 accept-language。
     const jsonHeaders = () => ({ 'content-type': 'application/json', ...langHeaders() })
 
-    async function callPrepare(action, message, backupDir) {
-      const res = await fetch('/config-sync/prepare', {
-        method: 'POST',
-        cache: 'no-store',
-        credentials: 'same-origin',
-        headers: jsonHeaders(),
-        body: JSON.stringify({ action, message: message || '', backupDir: backupDir || '' }),
-      })
-      const text = await res.text()
-      let body
-      try { body = text ? JSON.parse(text) : null } catch { throw badJson(res) }
-      if (!res.ok || !body || body.ok !== true) throw new Error((body && body.error) || `${res.status}`)
-      return body
-    }
 
     async function callSettings(payload) {
       const res = await fetch('/config-sync/settings', {
@@ -521,12 +507,10 @@ window.__ModuleLoader__.load({
       if (!res.ok || !body || body.ok !== true) throw new Error((body && body.error) || `${res.status}`)
       return body
     }
-    /** 取一份体检数据 + 生成脚本动作，供两个入口复用。 */
     function useSync() {
       const [data, setData] = react.useState(null)
       const [err, setErr] = react.useState('')
       const [busy, setBusy] = react.useState(false)
-      const [made, setMade] = react.useState(null)
 
       const refresh = react.useCallback(async (done) => {
         setBusy(true)
@@ -550,13 +534,7 @@ window.__ModuleLoader__.load({
         return () => { alive = false }
       }, [])
 
-      const prepare = react.useCallback(async (action, message, backupDir) => {
-        setBusy(true)
-        setErr('')
-        try { setMade(await callPrepare(action, message, backupDir)) } catch (e) { setErr(String((e && e.message) || e)) } finally { setBusy(false) }
-      }, [])
-
-      return { data, err, busy, made, refresh, prepare }
+      return { data, err, busy, refresh }
     }
 
     function Kv(props) {
@@ -570,50 +548,6 @@ window.__ModuleLoader__.load({
       return h('ul', { style: S.advice }, (props.items || []).map((a, i) => h('li', { key: i }, a)))
     }
 
-    function MadeNote(props) {
-      const made = props.made
-      if (!made) return null
-      const items = Array.isArray(made.built)
-        ? made.built
-        : [{ action: made.action, label: made.label, path: made.path, command: made.command, backup: made.backup, warnings: made.warnings }]
-      const LABEL = {
-        push: M('推送', 'Push'),
-        pull: M('拉取', 'Pull'),
-        restore: M('还原', 'Restore'),
-        'restore-backup': M('还原指定备份', 'Restore chosen backup'),
-        all: M('全部', 'All'),
-      }
-      const backup = items.map((it) => it.backup).find((b) => b && b.dir)
-      const when = backup && backup.at ? new Date(backup.at).toLocaleString(localeNow(), { hour12: false }) : ''
-      const warnItems = items.flatMap((it) => (Array.isArray(it.warnings) ? it.warnings.map((w) => ({ action: it.action, w })) : []))
-      const key = 'warn_' + (warnItems.length ? 1 : 0)
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-        items.map((it, i) => h('div', { key: i, style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
-          h('div', { style: S.hint }, M(
-            `已生成「${it.label || LABEL[it.action] || it.action}」：${it.path}`,
-            `Generated "${it.label || it.action}": ${it.path}`,
-          )),
-          h('div', { style: S.code }, it.command),
-        )),
-        backup
-          ? h('div', { style: S.hint }, M(
-            `还原快照：${backup.dir}（${when}，${backup.count} 份中的最新）`,
-            `Restore snapshot: ${backup.dir} (${when}; newest of ${backup.count})`,
-          ))
-          : null,
-        warnItems.length
-          ? h('div', { key, style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
-            warnItems.map((x, i) => h('div', {
-              key: i,
-              style: { ...S.hint, color: 'var(--dsw-alias-state-warn-primary)' },
-            }, `[${LABEL[x.action] || x.action}] ${x.w}`)))
-          : null,
-        h('div', { style: S.footnote }, M(
-          '脚本已带进程检查：退出 DSH 后双击；拉取 / 还原会先要你输 y 确认。',
-          'Scripts check for a running client: double-click after quitting DSH; pull/restore ask for y first.',
-        )),
-      )
-    }
 
     /**
      * 本机仓库卡：仓库目录（哪台机器上那份 dsh-config）。
@@ -669,7 +603,7 @@ window.__ModuleLoader__.load({
         h('div', { style: S.cardHead },
           h('div', { style: S.cardTitle }, M('本机仓库', 'Local repo')),
           isEditing && forced
-            ? h('div', { style: { ...S.hint, flex: 1 } }, M('先填好仓库目录才能生成脚本', 'Set the repo path first — scripts need it'))
+            ? h('div', { style: { ...S.hint, flex: 1 } }, M('先填好仓库目录才能同步', 'Set the repo path first to enable sync'))
             : null,
           h('div', { style: S.actions },
             isEditing
@@ -733,7 +667,7 @@ window.__ModuleLoader__.load({
      */
     function RemoteCard(props) {
       const remote = (props.data && props.data.remote) || {}
-      // 没配过云端仓库 = 强制编辑态：不给「取消」，也不许就这么放着去生成推送/拉取
+      // 没配过云端仓库 = 强制编辑态：不给「取消」，也不许就这么放着去推送/拉取
       const missing = Boolean(props.data) && !remote.configured
       const [editing, setEditing] = react.useState(false)
       const [url, setUrl] = react.useState(remote.url || '')
@@ -783,7 +717,7 @@ window.__ModuleLoader__.load({
         h('div', { style: S.cardHead },
           h('div', { style: S.cardTitle }, M('云端仓库', 'Cloud repo')),
           isEditing && missing
-            ? h('div', { style: { ...S.hint, flex: 1 } }, M('先填远端地址才能生成推送/拉取', 'Set the remote URL to enable push/pull'))
+            ? h('div', { style: { ...S.hint, flex: 1 } }, M('先填远端地址才能推送/拉取', 'Set the remote URL to enable push/pull'))
             : null,
           isEditing
             ? h('div', { style: S.actions },
@@ -836,8 +770,8 @@ window.__ModuleLoader__.load({
      * 由 post-exit.ps1 弹可见窗口跑 restore.ps1 -RollbackToPoint → 完成后自动重启客户端。
      *
      * 为什么不能"点了就直接覆盖"：profile 文件在 DSH 运行时被客户端持有，边跑边覆盖会被退出时的
-     * 回写再盖回去，甚至把 profile 弄坏。所以仍然必须走"退出后执行"，只是不再让用户自己双击 .cmd。
-     * 需要生成脚本的老路径（用于手动/离线执行）仍保留在「动作」卡里。
+     * 回写再盖回去，甚至把 profile 弄坏。所以仍然必须走"退出后执行"：点快照排队还原，
+     * 客户端退出后由 post-exit.ps1 自动跑 restore.ps1，完成后重启。
      */
     function RestoreCard(props) {
       const backup = (props.data && props.data.backup) || {}
@@ -2216,8 +2150,6 @@ window.__ModuleLoader__.load({
     }
 
     function ConfigSyncPanel() {
-      const { data, err, busy, made, refresh, prepare } = useSync()
-      const [note, setNote] = react.useState('')
       const [checking, setChecking] = react.useState(false)
       const [toast, setToast] = react.useState('')
       const [upd, setUpd] = react.useState(null)
@@ -2241,16 +2173,8 @@ window.__ModuleLoader__.load({
       // 定时器放 ref 里：数据每刷新一次 effect 就会重跑，若在 effect 里 return 清理函数，
       // 会把还没到点的"5 秒后消失"定时器一起清掉，提示就一直挂在屏幕上。
       const toastTimer = react.useRef(null)
+      const { data, err, busy, refresh } = useSync()
       const summary = summarize(data)
-      // 门禁分三条：有路径就能生成还原脚本；拉取允许「真仓库 or 空目录」；推送只允许真仓库。
-      // 空目录 = 新机器还没拉过，面板只放行「拉取」，推送按钮直接禁掉（后端也会再拦一次）。
-      const hasRepoPath = Boolean(data && data.repo && data.repo.path)
-      // 门禁统一由后端算好（repo.pullAllowed / pushAllowed），面板只做呈现：
-      //   真仓库 → 推拉都行；本机空 + 云端有内容 → 只拉；本机空 + 云端也空 → 只「初始化推送」。
-      const canPull = Boolean(data && data.repo && data.repo.pullAllowed === true)
-      const canPush = Boolean(data && data.repo && data.repo.pushAllowed === true)
-      // 云端仓库没配 = 推送/拉取禁用（还原只动本机快照，不拦）
-      const noRemote = !data || !data.remote || !data.remote.configured
 
       // 插件版本：打开面板查一次，之后每 30 分钟复查（服务端自己也缓存，网络开销≈0）。
       // 老版本机器就是靠这一条知道云端发了新版本。
@@ -2734,64 +2658,6 @@ window.__ModuleLoader__.load({
         h(Kv, { k: M('仓库路径', 'Repo path'), v: '…' }),
       )
 
-      const actionCard = h('div', { style: S.card },
-        h('div', { style: S.cardHead },
-          h('div', { style: S.cardTitle }, M('生成退出后执行的脚本', 'Generate post-exit scripts')),
-        ),
-        h('div', { style: { ...S.kvRow, alignItems: 'center' } },
-          h('div', { style: S.kvKey }, M('提交说明', 'Commit note')),
-          h('input', {
-            type: 'text',
-            style: S.input,
-            value: note,
-            placeholder: M('可选：这次改了什么（写进提交信息，时间自动附上）', 'Optional: what changed (written into the push commit message; the timestamp is added automatically)'),
-            spellCheck: false,
-            onChange: (e) => setNote(e.target.value),
-          }),
-        ),
-        h('div', { style: S.footnote },
-          data && data.backup && data.backup.latest
-            ? M(
-              `还原快照：${data.backup.latest}（${data.backup.count} 份中的最新）`,
-              `Restore snapshot: ${data.backup.latest} (newest of ${data.backup.count})`,
-            )
-            : M('还原快照：还没有备份快照（需先拉取，或指定 -FromCommit）', 'Restore snapshot: no backups yet (restore has nothing to fall back to — pull first, or pass -FromCommit)')),
-        data && data.repo && !data.repo.exists && !data.repo.empty
-          ? h('div', { style: { ...S.footnote, color: 'var(--dsw-alias-state-error-primary)' } },
-            M('仓库路径未配置：先在本机仓库卡里设好',
-              'Repo path is not set: configure it in the Local repo card, otherwise scripts cannot be generated.'))
-          : null,
-        data && data.repo && (data.repo.phase === 'empty' || data.repo.phase === 'missing')
-          ? h('div', { style: { ...S.footnote, color: 'var(--dsw-alias-state-warn-primary)' } },
-            data.repo.mode === 'await-init'
-              ? M('本机与云端都空：只生成「推送」（会初始化仓库），没有东西可拉',
-                'Both the local repo and the cloud are empty: only Push can be generated (push initializes the repo and writes the skeleton); there is nothing to pull.')
-              : M('本机仓库是空的：只生成「拉取」，拉完才能推送',
-                'The local repo has no content yet: only Pull (plus Restore) can be generated now. Pull brings the whole cloud repo into this path; push unlocks after that.'))
-          : null,
-        data && data.remote && !data.remote.configured
-          ? h('div', { style: { ...S.footnote, color: 'var(--dsw-alias-state-error-primary)' } },
-            M('远端地址未配置：只能生成还原',
-              'Cloud remote not set: push/pull unavailable (restore still works).'))
-          : null,
-        data && data.repo && data.repo.ahead > 0
-          ? h('div', { style: { ...S.footnote, color: 'var(--dsw-alias-state-warn-primary)' } },
-            M(`本机领先远端 ${data.repo.ahead} 个提交：改动要推送才入库；拉取会用仓库版本覆盖本机配置。`,
-              `${data.repo.ahead} local commit(s) not pushed: pushing publishes them, pulling overwrites local config.`))
-          : null,
-        h('div', { style: S.actions },
-          h('button', { type: 'button', style: S.btnPrimary, disabled: busy || (!canPull && !canPush) || noRemote, onClick: () => prepare('all', note) },
-            canPush && canPull ? M('一键生成 推送 / 拉取 / 还原', 'Generate push / pull / restore')
-              : (canPush ? M('一键生成 推送 / 还原', 'Generate push / restore') : M('一键生成 拉取 / 还原', 'Generate pull / restore'))),
-          h('button', { type: 'button', style: S.btn, disabled: busy || !canPush || noRemote, onClick: () => prepare('push', note) }, M('只生成推送', 'Push only')),
-          h('button', { type: 'button', style: S.btn, disabled: busy || !canPull || noRemote, onClick: () => prepare('pull') }, M('只生成拉取', 'Pull only')),
-          h('button', { type: 'button', style: S.btn, disabled: busy || !hasRepoPath, onClick: () => prepare('restore') }, M('只生成还原', 'Restore only')),
-        ),
-        h(MadeNote, { made }),
-        h('div', { style: S.footnote },
-          M('推送 / 拉取要等 DSH 完全退出后跑：生成脚本 → 退出 → 双击。',
-            'Push/pull must run after DSH fully exits: generate, quit, then double-click.')),
-      )
 
       const workspaceViewCard = h(WorkspaceViewCard, {})
       const remoteCard = data ? h(RemoteCard, { data, onSaved: refresh }) : null
@@ -2874,7 +2740,6 @@ window.__ModuleLoader__.load({
                 ['targets', M('同步目标', 'Targets')],
                 // 导航文案与 Section 标题口径对齐：key 仍是滚动锚点，只改显示标签，不改功能分组。
                 ['automation', M('自动化与插件更新', 'Automation & plugin update')],
-                ['actions', M('退出后执行', 'After exit')],
                 ['restore', M('还原备份', 'Restore backup')],
                 ['scope', M('同步内容', 'Sync content')],
                 ['extra', M('插件数据与额外路径', 'Plugin data & extra paths')],
@@ -2930,7 +2795,6 @@ window.__ModuleLoader__.load({
           Section(M('本机路径', 'Local paths'), M('每台机器确认一次即可：仓库里用占位符，落地时按这里展开', 'Confirm once per machine: the repo stores placeholders, expanded with these paths'), [rootsCard], 'roots'),
           Section(M('同步目标', 'Sync targets'), M('仓库与远端都是本机设置，改完即生效', 'Repo and remote are local settings, applied at once'), [repoCard, remoteCard].filter(Boolean), 'targets'),
           Section(M('自动化与插件更新', 'Automation & plugin update'), M('退出后自动做什么、插件自己怎么升级', 'What runs automatically after exit, and how the plugin upgrades'), [autoCard, updCard].filter(Boolean), 'automation'),
-          Section(M('退出后执行', 'After exit'), M('生成脚本 → 退出客户端后跑一遍', 'Generate the script → it runs after the client quits'), [actionCard], 'actions'),
           Section(M('还原备份', 'Restore backup'), M('点快照 → 确认差异 → 排队还原（退出客户端后执行）', 'Pick a snapshot → confirm the diff → queued restore (runs after the client quits)'), [restoreCard].filter(Boolean), 'restore'),
           Section(M('同步内容', 'Sync content'), M('十二组内容，默认全勾；必需组锁定', 'Twelve groups, all checked; required groups are locked'), [scopeCard], 'scope'),
           Section(M('插件数据与额外路径', 'Plugin data & extra paths'), M('插件自己的配置与数据：默认自动收，可改排除名单与体积上限', 'A plugin\'s own config and data: collected automatically, with editable exclusions and a size cap'), [extraCard], 'extra'),

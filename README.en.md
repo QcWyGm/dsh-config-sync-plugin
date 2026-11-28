@@ -1,13 +1,13 @@
 # dsh-config-sync-plugin
 [中文](README.md) | English
 
-A DSH plugin: it adds a **"Config Sync"** row to the sidebar (opening a full-page health-check panel), plus a summary row under **Settings → General**. It only **inspects and prepares commands** — the sync actions never run inside the app (except the automatic sync that relaunches the client).
+A DSH plugin: it adds a **"Config Sync"** row to the sidebar (opening a full-page health-check panel), plus a summary row under **Settings → General**. It does a read-only health check and queues push/pull/restore actions: you click a button, DSH exits, and `post-exit.ps1` runs the action and restarts the client.
 
 ![panel](docs/panel.en.png)
 
 > The screenshot is from 0.3.14; the section layout is unchanged. Every card is now "read-only + Edit" - see "Consistent interaction" below.
 
-The UI is bilingual: it follows the client language (`zh-*` → Chinese, anything else → English), with no settings toggle. Only the generated `.cmd` scripts keep Chinese text, because they are local shell helpers.
+The UI is bilingual: it follows the client language (`zh-*` → Chinese, anything else → English), with no settings toggle.
 
 > `README.md` (Chinese) is the trimmed, current reference; this English file mirrors the older per-version notes and keeps the same facts.
 
@@ -104,10 +104,10 @@ Real output of the isolated pull (`pull_rc=0`):
 
 | Path | Purpose |
 |---|---|
-| `index.js` | Host half: `/config-sync/status`, `/prepare`, `/settings`, `/auto`, `/update` routes |
+| `index.js` | Host half: `/config-sync/status`, `/settings`, `/auto`, `/update` routes |
 | `client.js` | Browser half: sidebar row, panel, settings summary row |
 | `cordis.patch.yml` | Bundle patch layer (`id: config-sync`) |
-| `runtime/` | The six post-exit PowerShell scripts plus `fix-session-cwd.mjs`, shipped with the package so scripts can be generated right after install without cloning the config repo first |
+| `runtime/` | The six post-exit PowerShell scripts plus `fix-session-cwd.mjs`, shipped with the package; queued push/pull/restore actions run these after DSH exits |
 | `tools/` | Self-test `selftest.mjs`, client structure check `clientcheck.mjs` |
 | `version.json` / `releases/` | Self-update manifest and package |
 
@@ -131,9 +131,9 @@ The layout is "one status row + one metric strip + section cards", read top to b
 
 **Metric strip**: five cells at a glance — `App / contract` (turns orange when they disagree), `bundle` (red when something is unresolvable), `Dependencies` (red when something is missing), `Snapshots` (count) and `Last sync` (time, with `(+N)` for files written after it). A "to-do" card appears below only when there is something to fix.
 
-**Sections**: Overview (strip + to-do) → Local paths (since 0.3.30: cross-machine root confirmation and the pending list; since 0.3.34 a read-only view with an Edit button; since 0.3.37 **the whole section stays hidden** and only expands from the "Local paths" button in the title row (which turns amber with a count when something needs review)) → Sync conflicts (only when there really are some) → Sync targets (Local / Cloud repo) → Automation & plugin update → After exit → Restore backup → Sync content → Feedback (since 0.3.31). Two columns on wide screens, and each card keeps text to "one value line + one grey hint line" instead of long prose.
+**Sections**: Overview (strip + to-do) → Local paths (since 0.3.30: cross-machine root confirmation and the pending list; since 0.3.34 a read-only view with an Edit button; since 0.3.37 **the whole section stays hidden** and only expands from the "Local paths" button in the title row (which turns amber with a count when something needs review)) → Sync conflicts (only when there really are some) → Sync targets (Local / Cloud repo) → Automation & plugin update → Restore backup → Sync content → Feedback (since 0.3.31). The former "After exit" section (generated `.cmd` scripts) was removed in 0.4.25. Two columns on wide screens, and each card keeps text to "one value line + one grey hint line" instead of long prose.
 
-**Consistent interaction**: Local paths / Local repo / Cloud repo / Auto sync / Plugin update / Sync content all start **read-only** and unlock on Edit; Save commits, Cancel drops the draft. Only cards that were never configured (no repo, no remote) stay in edit mode with no Cancel - without those values nothing can be pushed, pulled or generated. The Local paths card is also forced into edit mode when no root was detected at all.
+**Consistent interaction**: Local paths / Local repo / Cloud repo / Auto sync / Plugin update / Sync content all start **read-only** and unlock on Edit; Save commits, Cancel drops the draft. Only cards that were never configured (no repo, no remote) stay in edit mode with no Cancel - without those values nothing can be pushed or pulled. The Local paths card is also forced into edit mode when no root was detected at all.
 
 **"To push" is not just git**: even with a clean `git status`, new sessions/materials may still sit in `~\.dsh` uncaptured. So `sync.ps1` writes `~\.dsh\config-sync-state.json` (`lastSyncAt`/`mode`/`head`) after a successful push/pull, and `status` returns an extra `local` block: it stats `sessions`, `skills`, `.agent-presets`, `mnemon`, the five profile files and registered workspace directories, counting anything whose **mtime is later than `lastSyncAt`** into `local.pending`, which turns the badge orange "To push". mtime only — no content reads, no capture; capped at 20,000 files / 1.5 s; copies and "save as" count too, and a false positive only costs one extra hint.
 
@@ -148,13 +148,13 @@ The layout is "one status row + one metric strip + section cards", read top to b
 - Repo test: the directory has both `apply.ps1` and `profile\package.json` (plus `sync.ps1` to actually push/pull).
 - Priority: local settings file → plugin config `repoPath` → `DSH_CONFIG_REPO` → auto-detected common locations. **An empty folder configured explicitly counts as a valid answer** and is not displaced by another auto-detected repo.
 - Four phases (`repo.phase` in `status`): `ok` a real repo, `empty` an empty folder waiting for the first pull, `missing` the folder does not exist, `unusable` it holds other things and does not look like a repo. `repo.pushAllowed` / `repo.pullAllowed` derive from it, and the panel buttons and host routes share that one source of truth.
-- **An empty folder allows pull only when the cloud has content (since 0.3.26, cloud dimension since 0.3.35)**: when the path points at an empty folder and the cloud already has branches, the panel enables Pull (plus Restore) and greys out Push with a "pull first" hint; the host rejects `prepare(push)` and `auto(push-now)` with 400; "Generate …" degrades to pull + restore.
+- **An empty folder allows pull only when the cloud has content (since 0.3.26, cloud dimension since 0.3.35)**: when the path points at an empty folder and the cloud already has branches, the panel enables Pull (plus Restore) and greys out Push with a "pull first" hint; the host rejects `auto(push-now)` with 400. Pull runs `git init` → add `origin` → `fetch` → `checkout -B <branch>` (init+fetch+checkout rather than clone).
 - **An empty folder plus an empty cloud allows push only, and that push *is* Initialize push (since 0.3.35; it actually finishes since 0.3.42)**: the button reads "Initialize push" and Pull is greyed out (nothing to pull). `status` gains `repo.remoteHeads` (branch count, `null` = undeterminable), `repo.remoteEmpty` and a three-way `repo.mode` (`ok` / `await-pull` / `await-init`). `sync.ps1 push` then runs: `git init` → add `origin` → **write the repo skeleton** (copies `apply.ps1` / `capture.ps1` / `sync.ps1` / `restore.ps1` / `post-exit.ps1` / `dsh-sync-common.ps1` from the plugin runtime into the repo root, plus `tools\fix-session-cwd.mjs`) → write `profile\host-contract.json` (this machine's client version) → `capture` → commit → `push -u origin main`. The skeleton has to come along, otherwise the remote becomes a half repo (settings but no execution bodies) that the next machine cannot run.
 - **0.3.42 fixes the two traps that stopped Initialize push halfway**: (1) `capture.ps1`'s outside-root path report was missing a `$` — `(v.Replace(...)` made PowerShell look for a command named `v.Replace`, which only fires when the config has a custom root, and the whole push died with `无法将"v.Replace"项识别为 cmdlet`; (2) `sync.ps1` treated "the repo folder is not empty" as "you typed the wrong path", but during an Initialize push `capture` has just written 16 config items into that folder — so it blocked itself with its own output and exited. The test is now "the folder holds this plugin's own scripts (`dsh-sync-common.ps1` / `sync.ps1` / `capture.ps1`, any one of them) → it is a sync repo"; only a genuinely wrong path (Desktop, Downloads) is rejected.
 - "Does the cloud have content" is computed live with `git ls-remote --heads <remote>` (15 s timeout): **if it cannot be determined (offline / auth failure) the old rule applies and only Pull is enabled** — no push on a blind reading. If the cloud already has branches while the local folder is still empty, `push` is refused with a "pull first" message, because pushing would graft this machine's state onto a history already in use.
-- Only this plugin's own `同步-*.cmd` files and hidden entries (`.git` etc.) count as "empty"; a folder holding other files yet not looking like a repo is `unusable`, the panel asks you to reset the path, and saving the setting is refused too.
+- Only hidden entries (`.git` etc.) count as "empty"; a folder holding other files yet not looking like a repo is `unusable`, the panel asks you to reset the path, and saving the setting is refused too.
 - Cloud: the remote URL comes from `git remote get-url origin` first, falling back to the settings file; the SSH key stores only a **path** and may be empty to let `.ssh\config` decide.
-- **Never configured = forced setup**: the card stays in edit mode with no "Cancel", a red line at the top, the generate buttons disabled, and the host's `prepare` returns 400 (restore is unaffected when only the remote is missing).
+- **Never configured = forced setup**: the card stays in edit mode with no "Cancel", a red line at the top, and the push/pull buttons disabled.
 - Save order: validate (URLs accept only `git@host:path` / `ssh://` / `https://`; a key that is filled in must exist) → write settings → `set-url` if `origin` exists, `remote add` if not → on git failure roll the settings file back, so the panel never shows A while git uses B.
 - A configured path that later goes away (moved/renamed): `status` returns `repo.exists=false` with `phase='missing'`, and the panel returns to "must be set again" — it will **not** silently switch to another detected repo.
 - Stored in `~\.dsh\dsh-config-sync.json`: per machine, never in the repo.
@@ -167,7 +167,7 @@ The plugin does not pick a git host: the remote URL is only validated for its *f
 |---|---|
 | URL forms | `git@host:owner/repo.git`, `ssh://git@host:port/owner/repo.git`, `https://host/owner/repo.git` |
 | Default branch | `main` is tried first; if the remote has no `main`, the first remote branch is used (`master` on older repos), and tracking is set up after the pull |
-| Auth | SSH: fill in the key path (empty lets `.ssh\config` or Git defaults decide), and generated scripts use `GIT_SSH_COMMAND` with `StrictHostKeyChecking=accept-new`; HTTPS: use the account/token in Git Credential Manager — the plugin stores no passwords |
+| Auth | SSH: fill in the key path (empty lets `.ssh\config` or Git defaults decide); the post-exit `sync.ps1` uses `GIT_SSH_COMMAND` with `StrictHostKeyChecking=accept-new`; HTTPS: use the account/token in Git Credential Manager — the plugin stores no passwords |
 | Failure hint | On a failed fetch/pull the self-check host is read from the real `origin` URL (since 0.3.27) instead of a hard-coded `git@gitee.com`; an https URL gets the `ls-remote` check, not `ssh -T` |
 | File size cap | Three tiers: over 100 MB is skipped at capture time; ≥95 MB is unstaged before committing and recorded; 50–95 MB only warns |
 
@@ -348,7 +348,7 @@ This release is an equivalent refactor. The normal sync path is identical to 0.4
 - **Single source of truth**: the plugin root and version are consolidated to a single `PLUGIN_DIR` / `PLUGIN_VERSION` definition; dead code (`lsRemoteHeads`, unused imports, unused state) was removed.
 - **Consistency fixes**: `market-index.json` `publishTimestamp` normalized to milliseconds; leading-zero versions gain an `npmVersion` field; packaging excludes `_stage-*` / `_refactor-*` / `*.bak*` temp artifacts; the restore flow's AppRoot detection and experimental-bundle (`app.asar`) recognition are aligned with the main path; the language header is computed at request time (POST follows a language switch too); `callUpdate` now checks failures.
 
-Self-test: the four `node --check` targets, `selftest.mjs` and `clientcheck.mjs` match the 0.4.10 baseline item by item (the 8 prepare failures in this environment are pre-existing baseline failures with no `origin` configured, not introduced by this release).
+Self-test: the four `node --check` targets, `selftest.mjs` and `clientcheck.mjs` all pass.
 
 ### Pending push but nothing happens on × close: backend periodic pre-queue (0.4.05)
 
@@ -539,21 +539,17 @@ Since 0.3.28, `post-exit.ps1` corrects that value **after the client has fully e
 | Side effect | A default workspace you switched by hand gets pulled back to `default-workspace` on the next sync — set `off` if you don't want that |
 | Undo | Copy `workspace.json.bak-<timestamp>` back over `workspace.json` |
 
-## The scripts generated in one click
+## Post-exit actions
 
-"Generate push / pull / restore" can write all three at once, or one of them; when the local repo is still empty it generates pull + restore only. File names, buttons and the script text are Chinese by design.
+Push / pull / restore all follow "click a button → queue → DSH exits → `post-exit.ps1` runs it → restart". No `.cmd` scripts are generated for manual double-clicking any more. The executables themselves still live in `runtime/`:
 
-| Script | What it does | Safety valve |
+| Action | What it does | Safety valve |
 |---|---|---|
-| `同步-推送.cmd` | capture this machine's config after exit and push it | first checks whether `DeepSeek Harness.exe` is still running; refuses outright when the local repo is an empty folder |
-| `同步-拉取.cmd` | pull from the remote after exit and apply locally | same; **states how many commits ahead / uncommitted items first, and requires `y`** — it overwrites local config with the repo version |
-| `同步-还原.cmd` | roll the profile back to the snapshot taken before a given apply | same; **runs `-DryRun` to print the plan first, writes only after `y`** |
-| `同步-还原-<snapshot name>.cmd` | the same, but rolling back to **that specific snapshot** (generated by a row in the "Restore backup" card) | same; the file name carries the snapshot name, so several can coexist without overwriting each other |
+| Push (`sync.ps1 push`) | capture this machine's config after exit and push it | refused by the gate when the local repo is empty / the cloud already has content |
+| Pull (`sync.ps1 pull`) | pull from the remote after exit and apply locally | pre-flight checks scope / roots / link prerequisites; auto-rollback on failure |
+| Restore (`restore.ps1`) | roll the profile back to a snapshot taken before a given apply | runs `-DryRun` to print the plan, queues only after the diff is confirmed |
 
-All three bake in this machine's parameters (repo, AppRoot, `.dsh` location) and can be double-clicked. Pull and restore accept `--yes` to skip confirmation (for automation/remote control); with no confirmation they say plainly "no confirmation (y) received, exited: nothing changed on this machine" instead of exiting silently.
-
-- **Commit note**: optional when generating the push script; passed as `-Message "..."` to `sync.ps1`, and **the timestamp is appended at run time**. Empty means the default `sync: capture <time> @ <machine>`.
-- **Which restore snapshot**: if a snapshot exists at generation time it is written into `-BackupDir` explicitly (with time and total count); if not (fresh machine, plugin just installed) it is **left out** and `restore.ps1` picks the newest at run time — otherwise the script would stick to "there was no snapshot when it was generated". If the newest one turns out to be an empty snapshot, it walks back to the first one containing `package.json` and says so. Clicking a row in the "Restore backup" card uses the same generator and simply writes that snapshot's absolute path as `-BackupDir`, with the snapshot name in the file name.
+`sync.ps1` / `restore.ps1` accept `-Yes` to skip confirmation (used by the post-exit automation path). Restore passes `-BackupDir` explicitly when a snapshot is chosen; otherwise `restore.ps1` picks the newest at run time — walking back to the first one containing `package.json` if the newest is empty.
 
 ## Sync conflicts (since 0.3.17; both copies backed up since 0.3.18)
 
@@ -581,11 +577,11 @@ API: `GET/POST /config-sync/conflict` (GET reads the list, each item carrying `l
 
 ## Restore backup (since 0.3.13; "Restore now" + point-in-time since 0.3.25)
 
-The panel has a "Restore backup" card (placed after "After exit" and before "Sync content"): the top row is the **backup folder** (default `~\.dsh\backups`, where `apply.ps1` takes a snapshot before every pull/apply), and below it every **snapshot in that folder** is listed — name, time (plus a relative time such as "3 min ago"), how many plugins it holds, and whether it can be restored.
+The panel has a "Restore backup" card (placed after "Automation & plugin update" and before "Sync content"): the top row is the **backup folder** (default `~\.dsh\backups`, where `apply.ps1` takes a snapshot before every pull/apply), and below it every **snapshot in that folder** is listed — name, time (plus a relative time such as "3 min ago"), how many plugins it holds, and whether it can be restored.
 
 - **No sizes in the list (since 0.3.41)**: each snapshot is a whole profile (thousands of files). Older builds re-walked every snapshot on every panel refresh — 92 snapshots / 48k files measured 7.7 s, pushing `/config-sync/status` to 11 s; a single front-end fetch could not survive that and showed "read failed" until you clicked "Recheck" by hand. The list now shows name / time / plugin count / restorability only; sizes belong in Explorer. The same change also: caches the remote probe for 5 minutes, caps each probe at 2.5 s, warms it up when the plugin loads, and gives the front-end status call a 15 s timeout plus 3 automatic retries (the message says "retried 3 times"). Measured status went from 8.0 s to 0.35 s (median over 20 calls).
 
-- **Since 0.3.25 this is the same pipeline as "Pull now"**: clicking "Restore now" on a row first asks the host for a **diff preview** — which plugins installed after that snapshot will be removed, which files created after it will be moved out, which files will be overwritten / written back, and which plugins will be re-installed — and only "Confirm restore" queues it: the client closes normally, `post-exit.ps1` opens a visible progress window running `restore.ps1 -RollbackToPoint`, the result is written to `auto-sync-result.json`, and the client restarts automatically. No more quitting the client yourself, double-clicking a `.cmd` and typing `y`.
+- **Since 0.3.25 this is the same pipeline as "Pull now"**: clicking "Restore now" on a row first asks the host for a **diff preview** — which plugins installed after that snapshot will be removed, which files created after it will be moved out, which files will be overwritten / written back, and which plugins will be re-installed — and only "Confirm restore" queues it: the client closes normally, `post-exit.ps1` opens a visible progress window running `restore.ps1 -RollbackToPoint`, the result is written to `auto-sync-result.json`, and the client restarts automatically. No more quitting the client yourself or typing `y`.
 - **Point-in-time means rolling back to that moment**, not just copying the snapshot files back: files created after the snapshot move into `backups\manual-<timestamp>\rollback\files`; plugins installed afterwards lose only their junction link (never deleting through it into the real directory) or have their real directory moved into `rollback\plugins`; every item is recorded in `rollback\rollback-manifest.json` — all restorable, nothing physically deleted. The current config is saved first as `manual-<timestamp>` as well.
 - **What counts as "a plugin installed after the snapshot"**: the `dependencies` of the restored `package.json`. Direct children of `node_modules` (including `@scope/pkg`, but not `.bin` / `.pnpm`) that are not in it get removed, and `pnpm install` afterwards adds back whatever the snapshot had.
 - **The folder is editable**: click "Edit", type an absolute path (e.g. `D:\DSH-backups`) and save; the card then scans that folder. "Use default" clears it back to `~\.dsh\backups`. Stored as `backupRoot` in `~\.dsh\dsh-config-sync.json` — empty means the default, and it stays on this machine, never in the repo.
@@ -597,7 +593,6 @@ The panel has a "Restore backup" card (placed after "After exit" and before "Syn
 - **Classification cannot rely on `package.json` alone**: a profile's `package.json` **also** carries a `dsh` field (`dsh.profile.bundles`), so judging plugins by `dsh` misclassifies whole config snapshots (all 8 `config-*` and 2 `manual-*` snapshots did). The order is now: `name: dsh-profile-*` or `dsh.profile` → config; `name: dsh-config-sync` → plugin; then top-level contents and the folder-name prefix as fallbacks. Empty folders (half-finished installs) are marked "Empty backup" with no button.
 - **Only usable snapshots are offered**: a config snapshot without `profile\package.json` (the empty one `apply` leaves on a brand-new machine) is marked "Empty backup" and greyed out; `restore-backup` / `restore-preview` / `restore-now` share `resolveSnapshotDir`, and an unrecognised type is rejected with a pointer to the manual route.
 - **Only this folder's snapshots are accepted**: the path from the panel must be a real snapshot under the backup root (escaping it, relative paths, quotes or newlines are rejected), so changing the folder never widens the scope to arbitrary directories.
-- **The old path still works**: "generate restore script only" in the "After exit" card still writes `<repo>\restore-<snapshot name>.cmd` (dry-run preview, `y` confirmation, `manual-<timestamp>` safety copy) for offline / remote / manual use; `restore.ps1 -BackupDir` is unchanged, and `-RollbackToPoint` is added automatically by the panel pipeline.
 
 ## Plugin configs travel with the sync + cross-machine paths (since 0.3.30)
 
@@ -821,7 +816,6 @@ Release flow: change code → `pwsh -File tools\pack-plugin.ps1` to pack `releas
 | Interface | Notes |
 |---|---|
 | `GET /config-sync/status` | health-check JSON (including `repo.source` / `repo.configured` / `repo.phase` / `repo.empty` / `repo.remoteHeads` / `repo.remoteFiles` / `repo.pushAllowed` / `repo.pullAllowed`, `remote.configured`, `remote.backupRoot` / `remote.backupRootCustom`, `backup.{root,defaultRoot,custom,count,latest,latestFiles,snapshots:[{name,dir,at,files,bytes,usable,plugins,bundles}]}`, `local.{lastSyncAt,pending,sample}`, `auto.lastResult`) |
-| `POST /config-sync/prepare` | `{action:'push'\|'pull'\|'restore'\|'restore-backup'\|'all', message?, backupDir?}`, generates the matching `.cmd`; `all` returns `built: [...]` (when the local repo is empty the cloud file count decides: both empty → `['push','restore']`, cloud has files → `['pull','restore']`, the other one goes into `skipped`); on an empty folder `push` is allowed only when the cloud holds 0 files (that run is the initialize push) and `pull` only when the cloud actually has files; `restore-backup` requires `backupDir` (a real snapshot under the backup root that contains `profile\package.json`) |
 | `POST /config-sync/settings` | `{repoPath?, remoteUrl?, sshKey?, autoPull?, autoPush?, autoRestart?, backupRoot?, clearBackupRoot?}`: validate → write settings → (touch git only when the URL changed); failure rolls back and returns 400; an empty `backupRoot` / `clearBackupRoot` resets it to the default `~\.dsh\backups`; an empty folder is accepted, only "holds other files yet not a repo" is refused |
 | `POST /config-sync/auto` | `{action:'check'\|'pull-now'\|'push-now'\|'restore-preview'\|'restore-now'\|'cancel', backupDir?, closeNow?, restart?}`; `check` is a read-only fetch comparison (short-circuits with `pendingPull: true` when the local repo is empty instead of failing), `pull-now`/`push-now`/`restore-now` close the client without `/F` (a normal exit, so config is saved), `push-now` returns 400 on an empty folder; `restore-preview` only computes the diff (`pluginsRemove` / `pluginsInstall` / `willRemove` / `willOverwrite` / `willWrite`), while `restore-now` queues the "restore to that point after exit" run; `auto.pending` in `status` carries `reason` (why it queued) |
 | `GET/POST /config-sync/update` | `{action:'check'\|'prepare'\|'install-restart'\|'install-live'\|'restart'\|'apply'}`: `check` re-reads the manifest (mirrors tried in order); `prepare` only downloads into `~\.dsh\update-staging\`; `install-restart` hands that local package to the post-exit installer and closes DSH; `install-live` / `apply` / `restart` remain for CLI and compatibility |
@@ -832,7 +826,7 @@ Cross-origin requests get 403. The client only `fetch`es these routes, imports n
 
 Paths: the repo follows the priority above; the client root prefers `config.appRoot` and otherwise derives from the plugin's own location (`<AppRoot>\dsh-config-sync-plugin-0.1.0`), so moving machines needs no edit; `.dsh` is `config.dshHome` → `%DSH_HOME%` → `~\.dsh`. The sync state file `~\.dsh\config-sync-state.json` is written by `sync.ps1`; the plugin only reads it. Local-only files: `config-sync-roots.json` (confirmed roots), `config-sync-pending-paths.json` (files skipped for a missing root), `config-sync-absolute-paths.json` (0.3.36: stray roots-outside paths found after a push) and `config-sync-overwrite.json` (0.3.36: which local configs a pull overwrote, with backup paths), `config-sync-scope.json` (per-group checkboxes) and `config-sync-extra.json` (0.3.51: plugin-data rules and extra paths).
 
-**Boundary**: `capture` has to read `cordis.patch.yml` while DSH holds that file, so it would capture a half-written state; and after `apply` writes, DSH writes over it again on exit. Hence the fixed boundary: decide what to run and write the command now, double-click after DSH exits. The full explanation of the sync mechanism, directory layout, moving to another machine and troubleshooting lives in the config repo's root `README.md`; this document covers the plugin itself.
+**Boundary**: `capture` has to read `cordis.patch.yml` while DSH holds that file, so it would capture a half-written state; and after `apply` writes, DSH writes over it again on exit. Hence the fixed boundary: queue the action now, run it after DSH exits via `post-exit.ps1`, then restart the client. The full explanation of the sync mechanism, directory layout, moving to another machine and troubleshooting lives in the config repo's root `README.md`; this document covers the plugin itself.
 
 ## Pitfalls already closed in the generator
 
@@ -878,7 +872,7 @@ The log shows which path ran: `文件比较（快筛）：比对 N 个，深哈�
 
 ## Self-check
 
-- `node tools\selftest.mjs <repo path>`: starts the host half with a fake ctx, hits status, generates scripts and asserts the JSON and the files on disk; it backs up any existing `同步-*.cmd` in the repo root and restores them afterwards. **The repo path must be passed explicitly.**
+- `node tools\selftest.mjs <repo path>`: starts the host half with a fake ctx, hits status / auto / scope routes and asserts the JSON and files on disk. **The repo path must be passed explicitly.**
 - `node tools\clientcheck.mjs`: runs the client half with a fake `__ModuleLoader__` and a react stand-in, asserting the module loads, all three `apply()` registrations succeed (sidebar row and main with matching id/key), `inject` returns a disposer, and the component renders without throwing when data is empty. It validates the contract and structure; the UI still needs a restart and a look.
 - `pwsh -File tools\pack-plugin.ps1`: packs the tgz and writes the sha256 back into `version.json`. **PowerShell 7 is required** (the script is UTF-8 without a BOM, and 5.1 reads the Chinese text as GBK and fails).
 

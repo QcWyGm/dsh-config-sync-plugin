@@ -109,13 +109,7 @@ check('注册了设置 → 通用 摘要行', Boolean(settingsRow))
 check('客户端会调 /config-sync/settings 保存远端与私钥', /\/config-sync\/settings/.test(source))
 check('客户端有可编辑的「本机仓库」卡（repoPath 走设置接口）', source.includes('function RepoCard') && source.includes('callSettings({ repoPath: path })'))
 check('没配仓库时强制停在编辑态、且不提供取消', /forced/.test(source) && /forced \? null :/.test(source))
-check('没配仓库时生成按钮被禁用', source.includes('disabled: busy || !canPush || noRemote'))
 check('云端仓库缺配置时也强制编辑态（无取消）', /missing \? null :/.test(source) && source.includes('云端仓库地址'))
-check('云端仓库没配时推送/拉取禁用、还原仍可用',
-  source.includes('disabled: busy || !canPull || noRemote')
-    && source.includes("disabled: busy || !hasRepoPath, onClick: () => prepare('restore')"))
-check('面板有「提交说明」输入（生成推送脚本时带上）', source.includes('提交说明') && source.includes('prepare(\'push\', note)'))
-check('按钮文案用中文（推送 / 拉取）', source.includes("'只生成推送'") && source.includes("'只生成拉取'"))
 // 0.3.91：设置 → 通用 摘要行的远端信息会刷新，按钮换成「立即拉取/推送（会关闭 DSH）」
 check('设置摘要行展开时 fetch 远端再刷新（远端信息不陈旧）',
   source.includes('const refreshRemoteNow = react.useCallback(async () =>')

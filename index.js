@@ -3,11 +3,11 @@
  *
  * 职责边界（重要）
  * ----------------
- * DSH 运行期间不可能安全地做 push/pull：capture 要读正在被应用持有的 cordis.patch.yml，
- * apply 写完之后会被退出时的进程回写覆盖。所以这个插件**不执行**同步动作，只做两件事：
+ * DSH 运行期间直接跑 push/pull 不安全：capture 要读正在被应用持有的 cordis.patch.yml，
+ * apply 写完之后会被退出时的进程回写覆盖。所以同步动作统一走「排队 → 退出后执行」：
  *   1. 只读体检：两端版本契约、仓库领先/落后、待提交文件、bundle 能否在本机解析；
- *   2. 备命令：按本机实际路径生成一份 同步-推送.cmd / 同步-拉取.cmd，
- *      退出 DSH 后双击即可跑，参数不用手敲。
+ *   2. 立即推送/拉取/还原：点按钮经 /config-sync/auto 排进 watcher，DSH 退出后由
+ *      post-exit.ps1 真实执行，完成后自动重启；不再生成需要手动双击的 .cmd 脚本。
  *
  * 约束
  * ----
@@ -35,7 +35,6 @@ const pluginRequire = createRequire(import.meta.url)
 
 const PACKAGE_ID = 'dsh-config-sync-plugin'
 const ROUTE_STATUS = '/config-sync/status'
-const ROUTE_PREPARE = '/config-sync/prepare'
 const ROUTE_SETTINGS = '/config-sync/settings'
 const ROUTE_UPDATE = '/config-sync/update'
 const ROUTE_SCOPE = '/config-sync/scope'
@@ -1246,223 +1245,6 @@ function readBody(req) {
 }
 
 /**
- * 生成"退出后执行"的 cmd：参数按本机实际路径写死，双击即可。
- * action: push | pull | restore
- */
-const PS_EXE = '%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -NoProfile'
-// 绝对路径调任务列表和代码页：PATH 被裁过（或用户改坏）时也能跑，别指望 `tasklist` 能解析到
-const TASKLIST = '%SystemRoot%\\System32\\tasklist.exe'
-const CHCP = '%SystemRoot%\\System32\\chcp.com'
-const FIND = '%SystemRoot%\\System32\\find.exe'
-const PROC_GUARD = [
-  `${TASKLIST} /fi "imagename eq DeepSeek Harness.exe" | ${FIND} /i "DeepSeek Harness.exe" >nul && (`,
-  '  echo [X] DeepSeek Harness 还在运行，请先完全退出（窗口 + 托盘）再重试。',
-  '  pause',
-  '  exit /b 1',
-  ')',
-]
-
-function cmdHead(title) {
-  return [
-    '@echo off',
-    `${CHCP} 65001 >nul`,
-    'setlocal',
-    `echo 本脚本由 DSH 插件 dsh-config-sync-plugin 生成：${title}`,
-    ...PROC_GUARD,
-    'echo.',
-  ]
-}
-
-/**
- * cmd 的 echo 会把 < > | & ^ 当语法、把 % 当变量展开：
- * 直接 echo 一句带 `<时间戳>` 的提示，双击时会变成"从叫 时间戳 的文件读输入"并报
- * The system cannot find the file specified，那句话还打不出来。所有动态文案先过这里。
- */
-function echoSafe(text) {
-  return String(text).replace(/%/g, '%%').replace(/[<>|&^]/g, (c) => '^' + c)
-}
-
-/**
- * 生成 cmd 时要调用的 PowerShell 入口从哪来：
- *   1) 仓库里已经有 sync.ps1 / restore.ps1 → 用仓库那份（同步脚本随之更新）；
- *   2) 只有插件、仓库还没克隆（新机器刚装完）→ 用插件自带的 runtime\（随 tgz 一起发布）。
- * 两条路径都必须存在，否则明确报错，不生成一个双击必然失败的脚本。
- */
-function pickPs1(repo, name) {
-  const fromRepo = join(repo, name)
-  if (isFile(fromRepo)) return fromRepo
-  const fromPlugin = join(pluginRoot(), 'runtime', name)
-  if (isFile(fromPlugin)) return fromPlugin
-  throw new Error(t(
-    `找不到 ${name}：仓库里没有（${fromRepo}），插件自带的 runtime 也没有（${fromPlugin}）`,
-    `Cannot find ${name}: not in the repo (${fromRepo}) and not in the plugin's bundled runtime (${fromPlugin})`,
-  ))
-}
-
-function buildCmd(config, action, repo, appRoot, dshHome, state = {}) {
-  const isRestore = action === 'restore' || action === 'restore-backup'
-  const restorePs1 = isRestore ? pickPs1(repo, 'restore.ps1') : ''
-  const syncPs1 = isRestore ? '' : pickPs1(repo, 'sync.ps1')
-  // 仓库还没克隆时先建出目录，脚本要落在那里；clone 由 sync.ps1 首次执行时做完。
-  if (!isDir(repo)) { try { mkdirSync(repo) } catch { /* 建不出来就让后面的 writeFileSync 报 */ } }
-  const common = [`-RepoRoot "${repo}"`, `-AppRoot "${appRoot}"`, `-DshHome "${dshHome}"`]
-
-  // push/pull 要跟远端认证：设置里配了私钥就用它，不靠 .ssh\config 的默认选择。
-  // 铁律：GIT_SSH_COMMAND 必须以可执行程序开头。找不到 ssh.exe 时宁可不设（交给 .ssh\config），
-  // 也不能输出「-i "key" -o …」——git 会把它当命令交给 sh，直接 invalid option，报错还伪装成"仓库读不到"。
-  const settings = readSettings(dshHome)
-  const key = settings.sshKey || defaultSshKey()
-  const hasKey = Boolean(key) && isFile(key)
-  const coreSsh = readSshCommandFromGitConfig(repo)
-  const sshExe = coreSsh ? '' : resolveSshExe()
-  let envLines = []
-  if (hasKey && coreSsh) {
-    envLines = [
-      `set GIT_SSH_COMMAND=${coreSsh}`,
-      `echo ${echoSafe(`认证：git config core.sshCommand（私钥 ${key} 由该命令使用）`)}`,
-    ]
-  } else if (hasKey && sshExe) {
-    envLines = [
-      `set GIT_SSH_COMMAND="${sshExe}" -i "${key}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new`,
-      `echo ${echoSafe(`认证：SSH 私钥 ${key}`)}`,
-      `echo ${echoSafe(`认证：ssh ${sshExe}`)}`,
-    ]
-  } else if (hasKey) {
-    envLines = [
-      `echo ${echoSafe(`认证：私钥 ${key}`)}`,
-      `echo ${echoSafe('认证：本机没找到 ssh.exe，脚本内不设 GIT_SSH_COMMAND（它必须以可执行程序开头）')}`,
-      `echo ${echoSafe('认证：改为交给 .ssh\\config；若仍报 Could not read from remote，就装 Git 官方版或配 git config core.sshCommand')}`,
-    ]
-  } else {
-    envLines = [`echo ${echoSafe('认证：未配置私钥，交给 .ssh\\config 决定')}`]
-  }
-
-  if (isRestore) {
-    // 生成时如果已经有快照，就把那一份明写进脚本（双击前就知道退回哪里）；
-    // 还没有快照（新机器刚装插件）时不写 -BackupDir，交给 restore.ps1 运行时取最新一份 ——
-    // 否则脚本会一直咬住"生成那一刻没有快照"，之后拉取生成了快照也用不上。
-    // 面板「还原备份」里点某一行的还原时，state.backupDir 会带来那一份的绝对路径（已校验在备份根之下）。
-    const settings = readSettings(dshHome)
-    const backup = inspectBackup(dshHome, backupRootOf(dshHome, settings))
-    const picked = String(state.backupDir || '')
-    const pickedSnap = picked ? (backup.snapshots || []).find((s) => s.dir === picked) : null
-    const backupArg = (picked || backup.latest) ? [`-BackupDir "${picked || backup.latest}"`] : []
-    // 指定的是插件备份 / 会话备份时，restore.ps1 要按类型走不同分支（默认 profile）
-    const kind = pickedSnap ? pickedSnap.kind : ''
-    const kindArg = kind && kind !== 'profile' ? [`-SnapshotKind "${kind}"`] : []
-    const pluginArg = kind === 'plugin' ? [`-PluginDir "${pluginRoot()}"`] : []
-    const allArgs = [...common, ...backupArg, ...kindArg, ...pluginArg]
-    const dry = `${PS_EXE} -File "${restorePs1}" ${allArgs.join(' ')} -DryRun`
-    const real = `${PS_EXE} -File "${restorePs1}" ${allArgs.join(' ')}`
-    const backupLines = (picked || backup.latest)
-      ? [
-        `echo ${echoSafe(`备份快照：${picked || backup.latest}`)}`,
-        `echo ${echoSafe(`快照时间：${new Date(pickedSnap ? pickedSnap.at : backup.latestAt).toLocaleString('zh-CN', { hour12: false })}　备份根下共 ${backup.count} 份，这份含 ${pickedSnap ? pickedSnap.files : backup.latestFiles} 个文件`)}`,
-      ]
-      : [
-        `echo ${echoSafe(`备份快照：${backup.root}（生成脚本时这里还没有快照）`)}`,
-        `echo ${echoSafe('执行时由 restore.ps1 自动取该目录下最新一份；若那时仍为空，会提示你先跑一次拉取。')}`,
-      ]
-    const whatItDoes = kind === 'plugin'
-      ? t('把当前插件回滚到这份插件备份（先把当前插件整份备份，再覆盖）', 'Roll the plugin back to this plugin backup (the current plugin is copied aside first, then overwritten)')
-      : (kind === 'session'
-        ? t('把会话目录还原成这份会话备份（先把当前同名目录备份，再覆盖）', 'Restore the session folders from this backup (folders with the same name are copied aside first, then overwritten)')
-        : t('把本机 profile 退回到下面这个快照（先自保、再回退、再核对/重装依赖）。', 'Roll the local profile back to this snapshot (copy the current state aside, restore, then verify/reinstall dependencies).'))
-    const text = [
-      ...cmdHead(whatItDoes),
-      ...backupLines,
-      'echo.',
-      'echo 要换成别的快照或仓库某提交，编辑本文件，把 -BackupDir 改掉或换成 -FromCommit。',
-      'echo.',
-      'echo [第一步] 只看不动，先打印还原计划：',
-      dry,
-      'echo.',
-      'if /i "%~1"=="--yes" goto SYNC_RUN',
-      'set /p GO=按上面的计划执行还原？(y/N) ',
-      'if /i "%GO%"=="y" goto SYNC_RUN',
-      `echo ${echoSafe('没有收到确认（y），已退出：本机什么都没改。')}`,
-      'exit /b 0',
-      ':SYNC_RUN',
-      'echo.',
-      'echo [第二步] 开始还原（会先把当前 profile 另存一份再覆盖）：',
-      real,
-      'echo.',
-      'echo 执行结束。确认无误后再启动 DSH。',
-      'pause',
-    ].join('\r\n')
-    // 指定了某一份快照（面板点行还原）时脚本名带上快照名，多份还原脚本可以同时存在、互不覆盖
-    const fileName = pickedSnap ? `同步-还原-${pickedSnap.name}.cmd` : '同步-还原.cmd'
-    const path = join(repo, fileName)
-    writeFileSync(path, text, 'utf8')
-    const label = kind === 'plugin'
-      ? t('还原（插件 → 备份版本）', 'Restore (plugin → backup)')
-      : (kind === 'session' ? t('还原（会话 → 备份）', 'Restore (sessions → backup)') : t('还原（本机 → 快照）', 'Restore (machine → snapshot)'))
-    return { action, label, path, command: real,
-      backup: { dir: picked || backup.latest, root: backup.root, at: pickedSnap ? pickedSnap.at : backup.latestAt, count: backup.count, files: pickedSnap ? pickedSnap.files : backup.latestFiles } }
-  }
-
-  const target = action === 'push' ? 'push' : 'pull'
-  const label = target === 'push'
-    ? t('推送（本机 → 远端）', 'Push (machine → remote)')
-    : t('拉取（远端 → 本机）', 'Pull (remote → machine)')
-  // 提交说明只对 push 有意义：用户在面板里填一句，时间由 sync.ps1 在实际执行那一刻追加。
-  // 这里只做清洗（去引号/换行、% 转义、限长）：引号会破坏参数结构，% 会被 cmd 当变量展开。
-  const note = target === 'push' ? String(state.message || '').replace(/["\r\n]/g, ' ').replace(/%/g, '%%').trim().slice(0, 120) : ''
-  const command = [PS_EXE, '-File', `"${syncPs1}"`, target, ...common.map((c) => c),
-    ...(note ? ['-Message', `"${note}"`] : [])].join(' ')
-  const ahead = Number(state.ahead) || 0
-  const dirty = Number(state.dirty) || 0
-  const warnings = []
-  if (target === 'pull') {
-    if (ahead > 0) {
-      warnings.push(t(
-        `本机领先远端 ${ahead} 个提交（还没推送），拉取后这些改动在仓库里仍然缺失`,
-        `This machine is ${ahead} commit(s) ahead (not pushed yet); after pulling, those changes are still missing from the repo.`,
-      ))
-    }
-    if (dirty > 0) {
-      warnings.push(t(
-        `工作区有 ${dirty} 项未提交，拉取会用仓库版本覆盖对应的本机文件`,
-        `${dirty} uncommitted change(s): pulling overwrites the matching local files with the repo version.`,
-      ))
-    }
-    warnings.push(t(
-      '拉取 = 拉远端 + apply 到本机：会用仓库里的版本覆盖本机配置',
-      'Pull = fetch the remote and apply it locally: the repo version overwrites the local config.',
-    ))
-  }
-  const guard = target === 'pull'
-    ? [
-      ...(ahead > 0 ? [`echo ${echoSafe(`[!] 本机领先远端 ${ahead} 个提交（还没推送），这些改动拉取后不会进仓库。`)}`] : []),
-      ...(dirty > 0 ? [`echo ${echoSafe(`[!] 工作区有 ${dirty} 项未提交，拉取会用仓库版本覆盖对应本机文件。`)}`] : []),
-      `echo ${echoSafe('[!] 拉取会用仓库里的版本覆盖本机配置（覆盖前仍会先存一份 backups\\config-<时间戳> 快照）。')}`,
-      'echo.',
-      // chcp 之后 set /p 读不到被重定向的输入（会拿到空值静默退出），所以另给一个 --yes 免确认开关，
-      // 顺便让"没人按 y"这件事有明确回执，而不是什么都不发生。
-      'if /i "%~1"=="--yes" goto SYNC_RUN',
-      'set /p GO=拉取会覆盖本机配置，确认继续？(y/N) ',
-      'if /i "%GO%"=="y" goto SYNC_RUN',
-      `echo ${echoSafe('没有收到确认（y），已退出：本机什么都没改。')}`,
-      'exit /b 0',
-      ':SYNC_RUN',
-      'echo.',
-    ]
-    : []
-  const text = [
-    ...cmdHead(`会先确认 DSH 是否已退出，再执行「${label}」。`),
-    ...envLines,
-    'echo.',
-    ...guard,
-    ...(note ? [`echo ${echoSafe(`提交说明：${note}（时间自动附在后面）`)}`] : []),
-    command,
-    'echo.',
-    `echo 执行结束。若为拉取，确认无误后启动 DSH。`,
-    'pause',
-  ].join('\r\n')
-  const path = join(repo, `同步-${target === 'push' ? '推送' : '拉取'}.cmd`)
-  writeFileSync(path, text, 'utf8')
-  return { action: target, label, path, command, warnings, message: note }
-}
 
 /* ============================ 自动同步 / 自动推送 ============================
  * 插件跑在 DSH 主进程里：DSH 一退出插件就没了，所以"等 DSH 完全关闭再同步"不能由插件自己盯。
@@ -2307,12 +2089,6 @@ function contentKey(file) {
   return String(file).replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
-async function repoState(repo) {
-  if (!repo || !isDir(join(repo, '.git'))) return { ahead: 0, dirty: 0 }
-  const status = await git(repo, ['status', '--porcelain'])
-  const dirty = status ? status.split('\n').filter((l) => l.trim()).length : 0
-  return { ahead: await aheadCount(repo), dirty }
-}
 
 /** 当前分支名（游离 HEAD 时给出 'main' 兜底，跟以前的行为一致）。 */
 async function currentBranch(repo) {
@@ -2335,7 +2111,6 @@ async function aheadCount(repo) {
 }
 
 /** action 白名单：单个动作，或 all=一次性生成三个脚本。 */
-const ACTIONS = ['push', 'pull', 'restore', 'restore-backup', 'all']
 
 
 /** 远端地址只接受三种写法，别的一律拒（避免把乱七八糟的东西塞进 git remote）。 */
@@ -4086,141 +3861,6 @@ async function handleAutoExit(req, res, config) {
   }
 }
 
-async function handlePrepare(req, res, config) {
-  if (req.method !== 'POST') { sendJson(res, 405, { ok: false, error: 'POST only' }); return }
-  if (!originAllowed(req)) { sendJson(res, 403, { ok: false, error: 'cross-origin request rejected' }); return }
-  try {
-    const raw = await readBody(req)
-    const body = raw.trim() ? JSON.parse(raw) : {}
-    const action = String(body.action || '')
-    if (!ACTIONS.includes(action)) throw new Error(t(`action 只能是 ${ACTIONS.join(' / ')}`, `action must be one of ${ACTIONS.join(' / ')}`))
-    const message = typeof body.message === 'string' ? body.message : ''
-    const dshHome = config?.dshHome || process.env.DSH_HOME || join(homedir(), '.dsh')
-    const resolved = resolveRepo(config?.repoPath, dshHome)
-    const repo = resolved.repo
-    // 仓库还没克隆（新机器只装了插件）也允许生成：脚本会用插件自带的 runtime\，首次拉取由 sync.ps1 现场 clone。
-    // 只有「压根没配过路径」才拦。
-    if (!repo) {
-      throw new Error(t(
-        '还没有配置仓库目录：请先在面板「本机仓库」卡里点「设置路径」，指到一个目录（本地还没有仓库时，首次拉取会自动从云端克隆）',
-        'The repo directory is not configured: set the path in the Local repo card first (if the repo is not local yet, the first pull clones it from the cloud automatically)',
-      ))
-    }
-    const repoReady = isRepoDir(repo)
-    const phase = repoPhase(repo)
-    // 本机还没内容时，先问一次云端：云端也空 = 只能「初始化推送」，云端有内容 = 只能拉取。
-    // 一次请求算清楚，下面 push 门禁、all 的脚本组合、bootstrap 说明都用这同一个答案。
-    // 判据是「云端分支树里有没有文件」——远端只剩空分支时也算空仓库（历史被删空就是这个样子）。
-    const probeSettings = readSettings(dshHome)
-    let remoteFilesForPrepare = null
-    let remoteHeadsForPrepare = null
-    if (phase !== 'ok') {
-      const probeUrl = (await git(repo, ['remote', 'get-url', 'origin'])) || probeSettings.remoteUrl || ''
-      const probe = await probeRemote(probeUrl, probeSettings)
-      remoteFilesForPrepare = probe ? probe.files : null
-      remoteHeadsForPrepare = probe ? probe.heads : null
-    }
-    // 空白文件夹（或还没建）代表「本机还没有仓库内容」：能不能推，取决于云端有没有内容 ——
-    //   云端也空 → 允许，这次推送就是「初始化推送」（sync.ps1 会 git init + 写骨架 + capture + 提交 + 推）
-    //   云端有内容 → 拒绝，先拉取（硬推会把本机状态写进一份正在使用的历史）
-    if (action === 'push' && phase !== 'ok') {
-      if (remoteFilesForPrepare === null) {
-        throw new Error(t(
-          `连不上云端仓库（${probeSettings.remoteUrl || '还没配地址'}）：初始化推送要先确认云端是空仓库，请先确认地址与网络`,
-          `Cannot reach the cloud repo (${probeSettings.remoteUrl || 'no URL configured'}): initialize push needs to confirm the cloud repo is empty — check the URL and network.`,
-        ))
-      }
-      if (remoteFilesForPrepare > 0) {
-        throw new Error(t(
-          `云端仓库已经有内容（${remoteFilesForPrepare} 个文件）：本机还是空的，先执行「拉取」把内容拉下来，之后才能推送`,
-          `The cloud repo already has content (${remoteFilesForPrepare} file(s)): run Pull first to bring it down, then push.`,
-        ))
-      }
-    }
-    // 反过来：云端也空的时候不许生成拉取脚本 —— 拉下来只会得到一个空目录 + .git，
-    // 面板状态原地不动，人以为「同步过了」，实际什么都没下来。两边都空只走「推送（初始化）」。
-    if (action === 'pull' && phase !== 'ok') {
-      if (remoteFilesForPrepare === null) {
-        throw new Error(t(
-          '连不上云端仓库（' + (probeSettings.remoteUrl || '还没配地址') + '）：先确认地址与网络，再生成拉取脚本',
-          'Cannot reach the cloud repo (' + (probeSettings.remoteUrl || 'no URL configured') + '): check the URL and network before generating the pull script.',
-        ))
-      }
-      if (remoteFilesForPrepare === 0) {
-        throw new Error(t(
-          '云端仓库里一个文件都没有，没有内容可拉：本机和云端都空时请用「推送」（那次就是初始化推送）',
-          'The cloud repo has no file at all, so there is nothing to pull: when both sides are empty, use Push (that run initializes the repo).',
-        ))
-      }
-    }
-    // 推送 / 拉取都以「云端仓库地址」为前置；还原（最新快照或指定快照）只动本机快照，不需要远端。
-    if (action !== 'restore' && action !== 'restore-backup') {
-      const origin = isDir(join(repo, '.git')) ? await git(repo, ['remote', 'get-url', 'origin']) : null
-      const remoteUrl = origin || readSettings(dshHome).remoteUrl
-      if (!remoteUrl) {
-        throw new Error(t(
-          '还没有配置云端仓库地址：请先在面板「云端仓库」卡里填好远端地址并保存，再生成推送/拉取脚本',
-          'The cloud repo is not configured: fill in the remote URL in the Cloud repo card and save before generating push/pull scripts',
-        ))
-      }
-    }
-    const appRoot = resolveAppRoot(config?.appRoot)
-    // 定位不到客户端根就不许生成脚本：-AppRoot 错了会把插件部署进仓库、{{APP_ROOT}} 也全展开错位。
-    if (!appRoot) {
-      throw new Error(t(
-        '定位不到客户端根目录（要能找到 resources\\app\\package.json 或 resources\\app.asar）：'
-        + '请确认插件装在 <客户端根> 下（例如 D:\\DeepSeekHarness\\dsh-config-sync-plugin-0.3.67），或在设置里填客户端根 appRoot',
-        'Cannot locate the client root (needs resources\\app\\package.json or resources\\app.asar): '
-        + 'make sure the plugin is installed under <client root> (e.g. D:\\DeepSeekHarness\\dsh-config-sync-plugin-0.3.67), or set appRoot in the settings',
-      ))
-    }
-    const state = {...await repoState(repo), message}
-    // 「还原备份」点某一行：备份目录必须是备份根之下真实存在的一份快照 ——
-    // 面板传来的路径直接拼进 cmd，所以这里既校验存在，也校验不含引号/换行，避免生成出跑不起来的脚本。
-    let backupDir = ''
-    let snapshotKind = ''
-    if (action === 'restore-backup') {
-      // 与 restore-now 共用同一套校验：存在、在备份根之下、能认出类型（profile / plugin / session）
-      const snap = resolveSnapshotDir(dshHome, body.backupDir)
-      backupDir = snap.dir
-      snapshotKind = snap.kind
-    }
-    const stateWithBackup = { ...state, backupDir, snapshotKind }
-    // 「云端确实没有文件」——包括远端只剩空分支（历史被删空的现场）→ 都算可以初始化推送
-    const cloudEmptyForPrepare = remoteFilesForPrepare === 0
-    const bootstrap = repoReady ? null : {
-      repo,
-      initPush: phase !== 'ok' && cloudEmptyForPrepare,
-      note: t(
-        cloudEmptyForPrepare
-          ? '本机仓库和云端仓库都还是空的：点「推送」即「初始化推送」——会 git init、写出仓库骨架（apply/capture/sync 等执行体与版本契约）并把本机配置作为初始内容提交推送'
-          : (phase === 'empty'
-            ? '本机仓库是空目录：点「拉取」会用插件自带的 runtime 从云端把仓库内容拉到这个路径（拉完就能正常推送/拉取）'
-            : '本机还没有这个仓库（或还没克隆）：生成的三份脚本先用插件自带的 runtime，第一次执行拉取会自动从云端克隆到该目录'),
-        cloudEmptyForPrepare
-          ? 'Both the local repo and the cloud are empty: Push becomes Initialize push — it runs git init, writes the repo skeleton (apply/capture/sync bodies plus the version contract) and commits this machine\'s config as the initial content.'
-          : (phase === 'empty'
-            ? 'The local repo folder is empty: Pull uses the bundled runtime to fetch the repo from the cloud into that path (after that, push/pull work normally).'
-            : 'This repo is not on this machine yet (or not cloned): the scripts use the plugin\'s bundled runtime, and the first pull clones it from the cloud into that directory.'),
-      ),
-    }
-    if (action === 'all') {
-      // 脚本怎么组合，跟门禁同一套口径：真仓库全给；两边都空只给「推送（初始化）+ 还原」；
-      // 本机空云端有内容只给「拉取 + 还原」。面板上的「一键生成」按同一份规则显示按钮文案。
-      const wanted = phase === 'ok' ? ['push', 'pull', 'restore']
-        : (cloudEmptyForPrepare ? ['push', 'restore'] : ['pull', 'restore'])
-      const skipped = phase === 'ok' ? [] : (cloudEmptyForPrepare ? ['pull'] : ['push'])
-      const built = wanted.map((a) => buildCmd(config, a, repo, appRoot, dshHome, state))
-      sendJson(res, 200, { ok: true, action, built, bootstrap, skipped })
-      return
-    }
-    const built = buildCmd(config, action, repo, appRoot, dshHome, stateWithBackup)
-    sendJson(res, 200, { ok: true, action, ...built, bootstrap })
-  } catch (error) {
-    sendJson(res, 400, { ok: false, error: String((error && error.message) || error) })
-  }
-}
-
 /**
  * 跨机路径根：仓库里的配置存的是 {{APP_ROOT}} / {{DSH_HOME}} / {{WORKSPACE_HOME}} / {{ROOT:<key>}}，
  * 换一台机器落地时，这几个根都不一样。所以每台机器在这里确认一次自己的根，记进
@@ -5116,11 +4756,6 @@ export function apply(ctx, config) {
         kind: 'exact',
         path: ROUTE_STATUS,
         handler: withLang(handleStatus),
-      }))
-      scoped.effect(() => scoped.webServer.register({
-        kind: 'exact',
-        path: ROUTE_PREPARE,
-        handler: withLang(handlePrepare),
       }))
       scoped.effect(() => scoped.webServer.register({
         kind: 'exact',

@@ -5,7 +5,7 @@ DSH 插件：左侧栏多一行「配置同步」，点开是整页体检面板�
 
 ![panel](docs/panel-1.png)
 
-面板与宿主文案跟客户端语言走（`zh-*` → 中文，其余 → 英文），没有面板内切换开关；生成的 `.cmd` 脚本内文字固定中文。
+面板与宿主文案跟客户端语言走（`zh-*` → 中文，其余 → 英文），没有面板内切换开关。
 
 ---
 
@@ -117,10 +117,10 @@ pwsh -File runtime\sync.ps1 pull `
 
 | 路径 | 说明 |
 |---|---|
-| `index.js` | 宿主半身：`/config-sync/status`、`prepare`、`settings`、`auto`、`update`、`scope`、`conflict` 路由 |
+| `index.js` | 宿主半身：`/config-sync/status`、`settings`、`auto`、`update`、`scope`、`conflict` 路由 |
 | `client.js` | 浏览器半身：侧栏行、面板、设置摘要行 |
 | `cordis.patch.yml` | bundle 补丁层（`id: config-sync`） |
-| `runtime/` | 退出后执行的六个 PowerShell 脚本 + `fix-session-cwd.mjs`，随包发布，装好即可生成脚本 |
+| `runtime/` | 退出后执行的六个 PowerShell 脚本 + `fix-session-cwd.mjs`，随包发布，点「立即推送/拉取/还原」排队后自动执行 |
 | `tools/` | `selftest.mjs`、`clientcheck.mjs`、`pack-plugin.ps1` |
 | `version.json` / `releases/` | 自更新清单与安装包 |
 
@@ -154,12 +154,12 @@ pwsh -File runtime\sync.ps1 pull `
 - 仓库判据：目录里同时有 `apply.ps1` 与 `profile\package.json`（再有 `sync.ps1` 才算能推拉）。
 - 优先级：本机设置文件 → 插件配置 `repoPath` → `DSH_CONFIG_REPO` → 常见位置探测。**配置里填的空目录同样算有效答案**。
 - 四态（`repo.phase`）：`ok` 真仓库、`empty` 空目录/待首次拉取、`missing` 目录不存在、`unusable` 有别的文件却不像仓库；`repo.pushAllowed` / `repo.pullAllowed` 按它算。
-- **空目录 + 云端有内容 → 只允许拉取**：推送按钮置灰，宿主 `prepare(push)` 与 `auto(push-now)` 一律 400，「一键生成」自动降级成「拉取 / 还原」。拉取会 `git init` → 补 `origin` → `fetch` → `checkout -B <分支>`（用 init+fetch+checkout 而非 clone，因为目录里可能已有 `同步-*.cmd`）。
+- **空目录 + 云端有内容 → 只允许拉取**：推送按钮置灰，宿主 `auto(push-now)` 一律 400。拉取会 `git init` → 补 `origin` → `fetch` → `checkout -B <分支>`（用 init+fetch+checkout 而非 clone）。
 - **两边都空 → 只允许推送，且就是「初始化推送」**：`status` 给 `repo.remoteHeads` / `repo.remoteEmpty` / `repo.mode`（`ok|await-pull|await-init`）；执行时按上面的顺序写骨架 + capture + 提交 + `push -u origin main`。
 - 云端有没有内容用 `git ls-remote --heads` + 临时 bare `fetch --depth 1 --filter=blob:none` + `ls-tree -r` 数**文件数**（15 秒超时）。**探不到（离线/认证失败）就按老规矩只允许拉取**；`remoteFiles===0` 一律算「两边都空」，用 `--force-with-lease` 覆盖那个空分支（树是空的，不丢数据）。
-- 只有插件生成的 `同步-*.cmd` 与隐藏项算"空"；其余文件在却不具备仓库特征 → `unusable`。
+- 只有隐藏项算"空"；其余文件在却不具备仓库特征 → `unusable`。
 - 远端地址优先 `git remote get-url origin`，没有才回落到设置文件；SSH 私钥只存**路径**、可留空交给 `.ssh\config`。
-- **没配过 = 强制设置**：卡片停在编辑态、不给「取消」，顶部红字、生成按钮禁用，宿主 `prepare` 也 400（远端缺失时「还原」不受影响）。
+- **没配过 = 强制设置**：卡片停在编辑态、不给「取消」，顶部红字、推送/拉取按钮禁用。
 - 保存顺序：校验（地址只接受 `git@host:path` / `ssh://` / `https://`；私钥填了必须存在）→ 写设置 → 有 `origin` 就 `set-url`、没有就 `remote add` → git 失败回滚设置文件。
 - 设置落在 `~\.dsh\dsh-config-sync.json`，跟本机走、不进仓库。
 
@@ -368,7 +368,7 @@ pwsh -File runtime\sync.ps1 pull `
 - **单一定义**：插件根目录与版本收敛到 `PLUGIN_DIR` / `PLUGIN_VERSION` 单一来源；删除从未调用的 `lsRemoteHeads`、死导入与未使用的 state 等死代码。
 - **一致性修复**：`market-index.json` 的 `publishTimestamp` 统一为毫秒；前导零版本补 `npmVersion` 字段；打包排除 `_stage-*` / `_refactor-*` / `*.bak*` 等临时产物；还原流程的 AppRoot 探测与实验 bundle（`app.asar`）识别对齐主链路；语言头改为请求时计算（切换语言后 POST 也跟随）；`callUpdate` 补失败判断。
 
-自测：`node --check` 四项、`selftest.mjs`、`clientcheck.mjs` 与 0.4.10 基线逐项一致（本环境 8 项 prepare 失败为无 origin 的既有基线失败，非本版引入）。
+自测：`node --check` 四项、`selftest.mjs`、`clientcheck.mjs` 全部通过。
 
 ### 点 × 立即执行待推送/待拉取：后端窗口监视（0.4.06）
 
@@ -566,20 +566,17 @@ DSH 的会话标题会演进：先产生 fallback 临时标题（首条消息截
 | 安全阀 | 值不同才写；写前备份 `workspace.json.bak-<时间戳>`；写完回读校验；匹配不到就不动 |
 | 副作用 | 你手动切换的「默认工作区」会被下一次同步覆盖回来——不想要就设 `off` |
 
-## 一键生成的三份脚本
+## 退出后执行的三套动作
 
-「一键生成 推送 / 拉取 / 还原」可一次写三份或只写一份；仓库还是空目录时只生成「拉取 / 还原」。
+推送 / 拉取 / 还原统一走「点按钮排队 → DSH 退出 → `post-exit.ps1` 自动执行 → 重启」，不再生成需要手动双击的 `.cmd` 脚本。执行体本身仍在 `runtime/`：
 
-| 脚本 | 干什么 | 安全阀 |
+| 动作 | 干什么 | 安全阀 |
 |---|---|---|
-| `同步-推送.cmd` | 退出后 capture 并推到远端 | 先查客户端是否还在跑；本机仓库是空目录时拒绝 |
-| `同步-拉取.cmd` | 退出后拉取并 apply | 先写明「本机领先几个提交 / 几项未提交」，输 `y` 才动手（会用仓库版本覆盖本机配置） |
-| `同步-还原.cmd` | 退出后把 profile 退回某次 apply 前的快照 | 先 `-DryRun` 打印计划，按 `y` 才真写 |
-| `同步-还原-<快照名>.cmd` | 同上，退回**指定那一份** | 同上；文件名带快照名，多份并存互不覆盖 |
+| 推送（`sync.ps1 push`） | 退出后 capture 并推到远端 | 本机仓库是空目录/云端已有内容时按门禁拒绝 |
+| 拉取（`sync.ps1 pull`） | 退出后拉取并 apply | 拉取前检查 scope/根路径/link 前置条件；失败自动回滚 |
+| 还原（`restore.ps1`） | 退出后把 profile 退回某次 apply 前的快照 | 先 `-DryRun` 打印计划，确认差异后才排队 |
 
-三份都写死本机参数（仓库、AppRoot、`.dsh` 位置），双击即可。拉取与还原支持 `--yes` 免确认（自动化/远控用）；没有确认时明说「没有收到确认（y），已退出：本机什么都没改」。
-
-提交说明可填，以 `-Message "..."` 传进 `sync.ps1`，**时间由脚本执行那刻自动追加**。还原脚本生成时若已有快照会明写 `-BackupDir`；没有则不写，交给 `restore.ps1` 运行时取最新一份（最新是空快照时自动往前找第一份含 `package.json` 的）。
+`sync.ps1` / `restore.ps1` 支持 `-Yes` 免确认（退出后自动执行路径使用）。还原时若已有快照会用 `-BackupDir` 明确指定；没有则交给 `restore.ps1` 运行时取最新一份（最新是空快照时自动往前找第一份含 `package.json` 的）。
 
 ## 同步冲突
 
@@ -596,10 +593,10 @@ DSH 的会话标题会演进：先产生 fallback 临时标题（首条消息截
 
 ## 还原备份
 
-面板「还原备份」卡（排在「退出后执行」之后、「同步内容」之前）：上面一行是备份目录（默认 `~\.dsh\backups`，`apply.ps1` 每次拉取/落地前都会打一份快照），下面列出该目录下所有快照——名称、时间（带「3 分钟前」）、插件数、能否还原。
+面板「还原备份」卡（排在「自动化与插件更新」之后、「同步内容」之前）：上面一行是备份目录（默认 `~\.dsh\backups`，`apply.ps1` 每次拉取/落地前都会打一份快照），下面列出该目录下所有快照——名称、时间（带「3 分钟前」）、插件数、能否还原。
 
 - **列表不显示体积**：每份快照是整份 profile（几千文件），旧版每次刷新都逐个 `stat`，92 份 / 4.8 万文件实测 7.7 秒，`/status` 拖到 11 秒、前端 fetch 撑不住就显示「读取失败」。现在只给名称/时间/插件数/是否可还原；远端探测改成「缓存 5 分钟 + 每次最多等 2.5 秒 + 装载时预热」，前端 status 带 15 秒超时和 3 次自动重试。实测 status 8.0 秒 → 0.35 秒（中位，20 次）。
-- **「立即还原」是个流程**：点某行 → 宿主取**差异预览**（撤走哪些插件、移走哪些新增文件、覆盖哪些文件、要重装什么）→ 「确认还原」才排队 → 客户端正常退出 → `post-exit.ps1` 弹可见进度窗口跑 `restore.ps1 -RollbackToPoint` → 结果写 `auto-sync-result.json` → 自动重启。不用自己退客户端、双击 `.cmd`、输 `y`。
+- **「立即还原」是个流程**：点某行 → 宿主取**差异预览**（撤走哪些插件、移走哪些新增文件、覆盖哪些文件、要重装什么）→ 「确认还原」才排队 → 客户端正常退出 → `post-exit.ps1` 弹可见进度窗口跑 `restore.ps1 -RollbackToPoint` → 结果写 `auto-sync-result.json` → 自动重启。不用自己退客户端、输 `y`。
 - **时点还原 = 回到那个时间点**：快照之后新增的文件移进 `backups\manual-<时间戳>\rollback\files`；之后装上的插件，junction 只删链接（不穿进链接删实体）、实体目录移进 `rollback\plugins`；每项写进 `rollback\rollback-manifest.json`，全部可再还原。动手前先把当前配置另存 `manual-<时间戳>`。
 - **谁算「快照之后装上的插件」**：以还原后 `package.json` 的 `dependencies` 为准，`node_modules` 里不在其中的直接子目录（含 `@scope/包`）撤走。
 - **地址可自己改**：点「修改」填绝对路径（如 `D:\DSH备份`），存在 `~\.dsh\dsh-config-sync.json` 的 `backupRoot`；「恢复默认」清回 `~\.dsh\backups`。
@@ -813,7 +810,6 @@ node ~\.dsh\.dsh-plugin-market\market-core.mjs catalog --profile desktop
 | 接口 | 说明 |
 |---|---|
 | `GET /config-sync/status` | 体检 JSON（`repo.*`（`source/configured/phase/empty/remoteHeads/remoteFiles/pushAllowed/pullAllowed`）、`remote.*`、`backup.*`、`local.{lastSyncAt,pending}`、`auto.lastResult`、`conflicts`、`localPaths`） |
-| `POST /config-sync/prepare` | `{action:'push'\|'pull'\|'restore'\|'restore-backup'\|'all', message?, backupDir?}`；空目录上按云端文件数分流 |
 | `POST /config-sync/settings` | 校验 → 写设置 →（地址变了才动 git），失败回滚并 400 |
 | `POST /config-sync/auto` | `{action:'check'\|'pull-now'\|'push-now'\|'restore-preview'\|'restore-now'\|'cancel'}`，都不带 `/F` 关闭客户端（走正常退出，配置能存下来） |
 | `GET/POST /config-sync/update` | `{action:'check'\|'install-live'\|'restart'\|'apply'}` |
@@ -869,7 +865,7 @@ pwsh -File sync.ps1 push -ScanHistory
 
 ## 自检
 
-- `node tools\selftest.mjs <仓库路径>`：假 ctx 拉起宿主半身，打 status、生成脚本、断言 JSON 与落地文件；会先备份仓库根已有的同名 `同步-*.cmd`，断言完原样还原。**必须显式传仓库路径**。
+- `node tools\selftest.mjs <仓库路径>`：假 ctx 拉起宿主半身，打 status、auto、scope 等路由，断言 JSON 结构与落地文件。**必须显式传仓库路径**。
 - `node tools\clientcheck.mjs`：假 `__ModuleLoader__` + react 替身跑客户端半身，断言模块能加载、`apply()` 三处注册成功、`inject` 返回回收函数、组件在无数据下渲染不抛。
 - `pwsh -File tools\pack-plugin.ps1`：打包并把 sha256 回填 `version.json`。**必须用 PowerShell 7**（脚本是无 BOM UTF-8，5.1 按 GBK 读会把中文认错）。
 

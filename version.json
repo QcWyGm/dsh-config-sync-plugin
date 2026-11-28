@@ -1,11 +1,11 @@
 {
-  "version": "0.4.24",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.24/dsh-config-sync-plugin-0.4.24.tgz",
-  "tgzBytes": 484074,
-  "sha256": "2a1ddd25417cab9730cf5133a26fa74858d2072e26ed3b109ba2b24fe81e4965",
+  "version": "0.4.25",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.25/dsh-config-sync-plugin-0.4.25.tgz",
+  "tgzBytes": 469053,
+  "sha256": "465fce2ed34c5c32a4a188254743912115b2383029e0333834722d93c317e67b",
   "npmSha256": "448e8f8902924cfe1338e78f4988e371c94b52bba2c5412bdd6f1808de114522",
   "releasedAt": "2026-11-28",
-  "notes": "跨机配置完全同步：Windows-MCP 版本状态（dsh-windows-mcp.versions.json）纳入 settings 组；补全 MCP 连接器（mcp_connector.json）真实抓取/还原（此前是空壳组，只建空目录无复制）；桥行 windows-mcp.exe 的 DSH_HOME 绝对路径 token 化，跨机自动展开为本机路径。",
-  "notesEn": "Full cross-machine config sync: Windows-MCP version state (dsh-windows-mcp.versions.json) added to settings group; MCP connector (mcp_connector.json) real capture/restore (previously an empty shell group with no copy); windows-mcp.exe DSH_HOME absolute path in bridge line tokenized and expanded to local path on target machine.",
+  "notes": "取消「生成退出后执行的脚本」功能：移除 /config-sync/prepare 路由、前端动作卡与三份 .cmd 生成逻辑；推送/拉取/还原统一走「点按钮排队 → DSH 退出后 post-exit.ps1 自动执行 → 重启」的立即机制，其余功能不变。",
+  "notesEn": "Removed the \"generate post-exit scripts\" feature: dropped the /config-sync/prepare route, the front-end action card and the three .cmd generators. Push/pull/restore now all use the queue → exit → post-exit.ps1 → restart flow; everything else is unchanged.",
   "minClient": "0.2.2-rc.2"
 }
