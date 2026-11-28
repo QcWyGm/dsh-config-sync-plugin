@@ -3,7 +3,7 @@
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.24/dsh-config-sync-plugin-0.4.24.tgz",
   "tgzBytes": 484074,
   "sha256": "2a1ddd25417cab9730cf5133a26fa74858d2072e26ed3b109ba2b24fe81e4965",
-  "npmSha256": "798c780faec10329f6906ee1a70e93a8b775e94aeb720db0bc6b7538fda2a3bb",
+  "npmSha256": "448e8f8902924cfe1338e78f4988e371c94b52bba2c5412bdd6f1808de114522",
   "releasedAt": "2026-11-28",
   "notes": "跨机配置完全同步：Windows-MCP 版本状态（dsh-windows-mcp.versions.json）纳入 settings 组；补全 MCP 连接器（mcp_connector.json）真实抓取/还原（此前是空壳组，只建空目录无复制）；桥行 windows-mcp.exe 的 DSH_HOME 绝对路径 token 化，跨机自动展开为本机路径。",
   "notesEn": "Full cross-machine config sync: Windows-MCP version state (dsh-windows-mcp.versions.json) added to settings group; MCP connector (mcp_connector.json) real capture/restore (previously an empty shell group with no copy); windows-mcp.exe DSH_HOME absolute path in bridge line tokenized and expanded to local path on target machine.",
