@@ -3374,6 +3374,9 @@ function collectScopeGroups(dshHome, appRoot) {
     { id: 'comfyui-workflows.json', src: join(dshHome, 'data', 'dsh-comfyui', 'workflows.json') },
     { id: 'dsh-pet-main-config.jsonc', src: join(dshHome, 'dsh-pet', 'main-config.jsonc') },
     { id: 'dsh-market-state.json', src: join(profileDir, '.dsh-market', 'state.json') },
+    // 0.4.24：Windows-MCP 版本状态（active/previous/history/lastCheck）——之前是 .dsh 根散落文件、
+    // plugin-data 只扫一级目录、settings 白名单也没有它，跨机一直丢。纳入 settings 组同步。
+    { id: 'dsh-windows-mcp.versions.json', src: join(dshHome, 'dsh-windows-mcp.versions.json') },
   ].filter((x) => existsSync(x.src))
   groups.push({ id: 'settings', titleZh: '插件设置与工作流', titleEn: 'Plugin settings & workflows',
     descZh: '免付费模型设置、ComfyUI 工作流库、桌宠配置、插件市场状态', descEn: 'Free-model settings, ComfyUI workflows, desktop-pet config, market state',

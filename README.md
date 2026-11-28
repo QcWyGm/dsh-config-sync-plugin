@@ -309,6 +309,14 @@ pwsh -File runtime\sync.ps1 pull `
 
 附带：`git add -A` 改走 cmd 转发（EAP=Stop 下不再被 stderr advice 中断）；push 失败分类补 non-fast-forward（双机竞态给出「先拉取」指引）；capture 会话头归一执行器统一走 `Get-HostNodeRunner`（无独立 node 时不再 `& $null` 崩溃）并用 `$PID` 命名临时文件；notices byKind 补 `landing` 计数；面板 AutoCard 的 auto 请求统一走 callAuto；同步内容卡必需组单项勾选禁用（原本就是死开关）。
 
+### 跨机配置完全同步：Windows-MCP 版本状态 + MCP 连接器 + 桥行路径（0.4.24）
+
+本版补齐三类此前不同步或不正确的配置：
+
+- **Windows-MCP 版本状态**：`~\.dsh\dsh-windows-mcp.versions.json`（active/previous/history/lastCheck）是 `.dsh` 根散落文件，此前 `plugin-data` 只扫一级目录、`settings` 白名单也没它，跨机一直丢。本版纳入 settings 组同步。
+- **MCP 连接器配置**：此前 `mcp-connectors` 是空壳组——面板有声明、capture 只建空目录、apply 完全没有代码。本版补上 `~\.dsh\storages\mcp_connector.json` 的真实抓取与还原（含 OAuth/API Key 凭据，覆盖前自动备份）。
+- **桥行 exe 路径**：`cordis.patch.yml` 里 windows-mcp-bridge 的 command 是 `C:\Users\xxx\.dsh\...` 绝对路径，此前只 token 化 AppRoot、漏了 DSH_HOME，换机后桥接指向旧机路径失效。本版把 DSH_HOME 也 token 化，跨机自动展开为本机路径。
+
 ### 修复拉取前置检查过严（0.4.18）
 
 本版修复 0.4.17 新增的拉取前置检查在目标机误报失败、导致拉取被回滚的问题：

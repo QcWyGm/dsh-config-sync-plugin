@@ -2161,5 +2161,43 @@ console.log('== 0.4.21：更新安装兼容 pnpm 重打包结构（顶层 包名
     apS2.includes('pnpm publish 重打包') && apS2.includes("Join-Path $_.FullName 'package.json'"), 'apply.ps1')
 }
 
+console.log('== 0.4.23：跨机隐藏对齐（Mnemon/子代理会话同步保留但不显示）==')
+{
+  const apS3 = readFileSync(join(pluginRootSelf, 'runtime', 'apply.ps1'), 'utf8')
+  // apply.ps1 落盘前把非 session- 前缀的登记会话 id 并进 $gArchAll（global.archivedSessionIds）
+  check('apply.ps1 跨机隐藏对齐块存在（0.4.23 注释）', apS3.includes('跨机隐藏对齐（0.4.23）'), 'apply.ps1')
+  check('apply.ps1 autoHide 判定：非 session- 前缀即 Mnemon/子代理', apS3.includes("-notlike 'session-*'"), 'apply.ps1')
+  check('apply.ps1 autoHide 并进 $gArchAll（global 隐藏通道）', apS3.includes('$gArchAll += $autoHide'), 'apply.ps1')
+  check('apply.ps1 收集源覆盖 plan/sidByWsDir/defaultSids/localTable',
+    apS3.includes('$allSids += @($e2.SessionIds)')
+    && apS3.includes('$allSids += @($sidByWsDir[$k2])')
+    && apS3.includes('$allSids += $defaultSids')
+    && apS3.includes("$allSids += @($localTable[$id2]['sessionIds'])"), 'apply.ps1')
+}
+
+console.log('== 0.4.24：Windows-MCP 版本状态 + MCP 连接器真实同步 + 桥行 DSH_HOME token ==')
+{
+  const capS4 = readFileSync(join(pluginRootSelf, 'runtime', 'capture.ps1'), 'utf8')
+  const apS4  = readFileSync(join(pluginRootSelf, 'runtime', 'apply.ps1'), 'utf8')
+  const idxS4 = readFileSync(join(pluginRootSelf, 'index.js'), 'utf8')
+  // 1) Windows-MCP versions.json 入 settings 白名单（capture + apply + 面板）
+  check('capture.ps1 settingsMap 含 dsh-windows-mcp.versions.json',
+    capS4.includes("settings\\dsh-windows-mcp.versions.json"), 'capture.ps1')
+  check('apply.ps1 settingsMap 含 dsh-windows-mcp.versions.json',
+    apS4.includes("settings\\dsh-windows-mcp.versions.json"), 'apply.ps1')
+  check('index.js settingsFiles 含 dsh-windows-mcp.versions.json',
+    idxS4.includes("'dsh-windows-mcp.versions.json'"), 'index.js')
+  // 2) MCP 连接器真实抓取/还原（此前是空壳：只有组声明 + 建空目录）
+  check('capture.ps1 有 mcp-connectors 真实抓取（CopyTracked mcp_connector.json）',
+    capS4.includes("mcp-connectors\\mcp_connector.json") && capS4.includes('Get-SyncRoots $DshHome $AppRoot $WorkspaceHome'), 'capture.ps1')
+  check('apply.ps1 有 mcp-connectors 还原（写回 storages\\mcp_connector.json）',
+    apS4.includes("mcp-connectors\\mcp_connector.json") && apS4.includes("storages\\mcp_connector.json"), 'apply.ps1')
+  // 3) 桥行 DSH_HOME token 化（capture 替换 + apply 展开）
+  check('capture.ps1 Set-AppRootToken 含 DSH_HOME token 化',
+    capS4.includes('$DshHomeToken') && capS4.includes('Get-PathVariants $DshHome'), 'capture.ps1')
+  check('apply.ps1 Expand-AppRoot 含 {{DSH_HOME}} 展开',
+    apS4.includes('$text.Replace($DshHomeToken, $dshFwd)'), 'apply.ps1')
+}
+
 process.exit(failures === 0 ? 0 : 1)
 

@@ -85,6 +85,12 @@ function Expand-AppRoot([string]$text, [string]$rootFwd) {
     $wsFwd = $WorkspaceHome.Replace('\\', '/').TrimEnd('/')
     $text = $text.Replace($WorkspaceHomeToken, $wsFwd)
   }
+  # 0.4.24：windows-mcp-bridge command 里的 {{DSH_HOME}} → 本机 .dsh 路径。
+  # capture 侧 Set-AppRootToken 已把旧机 DSH_HOME token 化，这里必须展开，否则桥行留裸占位符。
+  if ($text.Contains($DshHomeToken)) {
+    $dshFwd = ([string]$DshHome).Replace('\\', '/').TrimEnd('/')
+    $text = $text.Replace($DshHomeToken, $dshFwd)
+  }
   # 再兜底老仓库里没迁移过的盘符绝对路径
   return (Convert-AppRootText $text $AppRoot $rootFwd)
 }
@@ -863,7 +869,9 @@ $settingsMap = @(
   @{ Repo = 'settings\task-board-ledger.json';     Src = (Join-Path $DshHome 'task-board\ledger-v2.json');                        Label = '任务板台账' },
   @{ Repo = 'settings\task-board-scheduler.json';  Src = (Join-Path $DshHome 'task-board\scheduler-v2.json');                     Label = '任务板调度' },
   @{ Repo = 'settings\dsh-workspaces.json';        Src = (Join-Path $DshHome 'storages\workspace.json');                          Label = 'DSH 工作区登记' },
-  @{ Repo = 'settings\workspace-archives.json';    Src = (Join-Path $DshHome 'dsh-session-manager\workspace-archives.v1.json');   Label = 'DSH 工作区隐藏状态' }
+  @{ Repo = 'settings\workspace-archives.json';    Src = (Join-Path $DshHome 'dsh-session-manager\workspace-archives.v1.json');   Label = 'DSH 工作区隐藏状态' },
+  # 0.4.24：Windows-MCP 版本状态，与 capture.ps1 的 settingsMap 同步
+  @{ Repo = 'settings\dsh-windows-mcp.versions.json'; Src = (Join-Path $DshHome 'dsh-windows-mcp.versions.json');                 Label = 'Windows-MCP 版本状态' }
 )
 
 # ---------- 0.5 宿主版本契约（只提示、不阻断拉取；0.4.10 起） ----------
@@ -1213,6 +1221,37 @@ foreach ($m in $settingsMap) {
 }
 Ok "已还原插件设置 / 工作流 / 各插件配置"
 } else { Warn '跳过（未勾选同步）：插件设置 / 工作流 / 各插件配置' }
+
+# 5.5) MCP 连接器配置还原（0.4.24 补全：此前 apply 完全没有 mcp 相关代码）
+if (Test-SyncGroupEnabled $Scope 'mcp-connectors') {
+  $mcpSrcRepo = Join-Path $RepoRoot 'mcp-connectors\mcp_connector.json'
+  $mcpDstLocal = Join-Path $DshHome 'storages\mcp_connector.json'
+  if (-not (Test-Path -LiteralPath $mcpSrcRepo)) {
+    Warn '仓库里没有 mcp-connectors\mcp_connector.json，跳过 MCP 连接器还原'
+  } else {
+    # 覆盖前备份本机现状（含机主自己的授权，翻车可还原）
+    if (Test-Path -LiteralPath $mcpDstLocal) {
+      $mcpBakDir = Join-Path $BackupDir 'mcp-connectors'
+      if (-not (Test-Path -LiteralPath $mcpBakDir)) { New-Item -ItemType Directory -Path $mcpBakDir -Force | Out-Null }
+      Copy-Item -LiteralPath $mcpDstLocal -Destination (Join-Path $mcpBakDir 'mcp_connector.json') -Force
+    }
+    $mcpTxt = [IO.File]::ReadAllText($mcpSrcRepo)
+    $mcpExpanded = Expand-TokenText $mcpTxt $roots
+    $mcpMissing = @(Get-MissingTokens $mcpExpanded)
+    if ($mcpMissing.Count -gt 0) {
+      foreach ($k in $mcpMissing) {
+        $pendingItems.Add([pscustomobject][ordered]@{ token = $k; file = 'mcp-connectors\mcp_connector.json'; label = 'MCP 连接器配置'; hint = (Get-TokenHint $k) }) | Out-Null
+      }
+      Warn ("跳过 MCP 连接器还原：需要先确认路径 " + ($mcpMissing -join '、'))
+    } else {
+      $mcpDir = Split-Path -Parent $mcpDstLocal
+      if (-not (Test-Path -LiteralPath $mcpDir)) { New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null }
+      [IO.File]::WriteAllText($mcpDstLocal, $mcpExpanded, (New-Object Text.UTF8Encoding($false)))
+      Ok '已还原 MCP 连接器配置（含 OAuth/API Key 凭据，敏感文件）'
+    }
+  }
+} else { Warn '跳过（未勾选同步）：MCP 连接器配置' }
+
 if ($pendingItems.Count -gt 0) {
   $pf = Write-PendingPaths $DshHome $pendingItems
   Warn ("有 {0} 项配置等待确认路径，本次未写入。已记到 {1}，到面板「本机路径」选好目录，之后再拉取一次即可。" -f $pendingItems.Count, $pf)

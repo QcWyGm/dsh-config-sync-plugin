@@ -606,7 +606,15 @@ function Sync-ConversationCapture {
 # 现在先按本机 -AppRoot 的实际路径做字面替换（任意目录名、任意盘符），再用「末级目录名」正则兜底。
 
 function Set-AppRootToken([string]$text) {
-  return (Convert-AppRootText $text $AppRoot $AppRootToken)
+  $text = Convert-AppRootText $text $AppRoot $AppRootToken
+  # 0.4.24：profile\cordis.patch.yml 里 windows-mcp-bridge 的 command 是 DSH_HOME 下的绝对路径
+  # （C:\Users\xxx\.dsh\dsh-windows-mcp\toolchain\...\windows-mcp.exe）。只 token 化 AppRoot 会漏掉它，
+  # 换机后仍指向旧机 Administrator 路径、桥接 exe 失效。补一条 DSH_HOME → {{DSH_HOME}}。
+  if ($text -and $DshHome -and $DshHome.Length -ge 5) {
+    foreach ($v in (Get-PathVariants $DshHome)) { $text = $text.Replace($v, $DshHomeToken) }
+    $text = [regex]::Replace($text, '(\{\{DSH_HOME\}\})((?:\\\\|\\|/)[^"\s,;:}{\[\]]*)', { param($m) $m.Groups[1].Value + ($m.Groups[2].Value.Replace('\\', '/').Replace('\', '/')) })
+  }
+  return $text
 }
 
 Say "== DSH 配置同步 / capture =="
@@ -899,7 +907,10 @@ if (Test-SyncGroupEnabled $Scope 'settings') {
     @{ Repo = 'settings\task-board-ledger.json';     Src = (Join-Path $DshHome 'task-board\ledger-v2.json');                          Label = '任务板台账' },
     @{ Repo = 'settings\task-board-scheduler.json';  Src = (Join-Path $DshHome 'task-board\scheduler-v2.json');                       Label = '任务板调度' },
     @{ Repo = 'settings\dsh-workspaces.json';        Src = (Join-Path $DshHome 'storages\workspace.json');                            Label = 'DSH 工作区登记' },
-    @{ Repo = 'settings\workspace-archives.json';    Src = (Join-Path $DshHome 'dsh-session-manager\workspace-archives.v1.json');     Label = 'DSH 工作区隐藏状态' }
+    @{ Repo = 'settings\workspace-archives.json';    Src = (Join-Path $DshHome 'dsh-session-manager\workspace-archives.v1.json');     Label = 'DSH 工作区隐藏状态' },
+    # 0.4.24：Windows-MCP 版本状态（active/previous/history/lastCheck），此前是 .dsh 根散落文件、
+    # plugin-data 只扫一级目录、settings 白名单也没有它 → 跨机一直丢。纳入 settings 组。
+    @{ Repo = 'settings\dsh-windows-mcp.versions.json'; Src = (Join-Path $DshHome 'dsh-windows-mcp.versions.json');                   Label = 'Windows-MCP 版本状态' }
   )
   foreach ($m in $settingsMap) {
     if (-not (Test-SyncItemEnabled $Scope 'settings' ($m.Repo -replace '^settings\\', ''))) {
@@ -935,6 +946,33 @@ if (Test-SyncGroupEnabled $Scope 'settings') {
   }
 
 } else { Skip-SyncGroup $Scope $RepoRoot 'settings' }
+
+# 5.5) MCP 连接器配置（0.4.24 补全：此前面板有组、这里只有建空目录，没有真正抓取）
+# mcp_connector.json 含 OAuth token / API Key，属敏感文件：文本里 token 会被 ConvertTo-TokenText
+# 归一本机路径（若字段里有），但凭据本身原样入库——这是用户要跨机复用授权的明确选择。
+if (Test-SyncGroupEnabled $Scope 'mcp-connectors') {
+  $mcpSrc = Join-Path $DshHome 'storages\mcp_connector.json'
+  $mcpDst = Join-Path $RepoRoot 'mcp-connectors\mcp_connector.json'
+  if (Test-Path -LiteralPath $mcpSrc) {
+    $mcpRoots = Get-SyncRoots $DshHome $AppRoot $WorkspaceHome
+    $txt = [IO.File]::ReadAllText($mcpSrc)
+    $txt = ConvertTo-TokenText $txt $mcpRoots
+    $norm = $txt -replace "`r`n", "`n"
+    $existing = $null
+    if (Test-Path -LiteralPath $mcpDst) { $existing = [IO.File]::ReadAllText($mcpDst) -replace "`r`n", "`n" }
+    if ($null -ne $existing -and $existing -eq $norm) {
+      Say "  =  mcp-connectors\mcp_connector.json（无变化）"
+    } else {
+      $mcpDir = Split-Path -Parent $mcpDst
+      if (-not (Test-Path -LiteralPath $mcpDir)) { New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null }
+      [IO.File]::WriteAllText($mcpDst, $norm, (New-Object Text.UTF8Encoding($false, $false)))
+      $changed.Add('mcp-connectors\mcp_connector.json') | Out-Null
+      Ok "更新 mcp-connectors\mcp_connector.json（含 OAuth/API Key 凭据，敏感文件）"
+    }
+  } else {
+    Warn "本机没有 storages\mcp_connector.json，跳过 MCP 连接器同步"
+  }
+} else { Skip-SyncGroup $Scope $RepoRoot 'mcp-connectors' }
 
 # 6) 记忆插件数据目录 mnemon（与记忆插件配套，需要跨机一致）
 if (Test-SyncGroupEnabled $Scope 'mnemon') {

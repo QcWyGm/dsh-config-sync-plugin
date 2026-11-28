@@ -289,6 +289,14 @@ This release fixes five classes of issues found in the full-code audit:
 
 Also: `git add -A` now goes through cmd forwarding (no NativeCommandError under EAP=Stop); push failure classification adds non-fast-forward ("pull first" guidance); capture cwd normalization uses `Get-HostNodeRunner` (no more `& $null` crash) and `$PID` temp names; notices byKind counts `landing`; panel AutoCard uses callAuto; required-group item checkboxes are disabled in the scope card (they were dead switches).
 
+### Full cross-machine config sync: Windows-MCP state + MCP connectors + bridge path (0.4.24)
+
+This release fixes three configs that were previously unsynced or wrong across machines:
+
+- **Windows-MCP version state**: `~\.dsh\dsh-windows-mcp.versions.json` (active/previous/history/lastCheck) is a loose file at the `.dsh` root; `plugin-data` only scans first-level directories and the `settings` whitelist lacked it, so it was always lost cross-machine. Now included in the settings group.
+- **MCP connector config**: the `mcp-connectors` group was an empty shell — panel declared it, capture only made an empty dir, apply had no code at all. Now real capture/restore of `~\.dsh\storages\mcp_connector.json` (includes OAuth/API Key credentials, auto-backup before overwrite).
+- **Bridge exe path**: the windows-mcp-bridge command in `cordis.patch.yml` is a `C:\Users\xxx\.dsh\...` absolute path; only AppRoot was tokenized before, missing DSH_HOME, so the bridge pointed at the old machine after sync. DSH_HOME is now tokenized and expanded to the local path on the target machine.
+
 ### Fix over-strict pull preflight (0.4.18)
 
 This release fixes the 0.4.17 preflight false-failure that rolled back pulls on the target machine:
