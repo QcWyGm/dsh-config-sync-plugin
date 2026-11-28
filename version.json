@@ -1,11 +1,11 @@
 {
-  "version": "0.4.25",
-  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.25/dsh-config-sync-plugin-0.4.25.tgz",
-  "tgzBytes": 469053,
-  "sha256": "465fce2ed34c5c32a4a188254743912115b2383029e0333834722d93c317e67b",
+  "version": "0.4.26",
+  "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.26/dsh-config-sync-plugin-0.4.26.tgz",
+  "tgzBytes": 473298,
+  "sha256": "dbe6774b83844becdd50b2441492b354734385bfd19132f1509ce74a03b10a47",
   "npmSha256": "da42fb252753493a47c9facc91557abda4491b4aa3e0c2d1b53a5e53b11159b9",
   "releasedAt": "2026-11-28",
-  "notes": "取消「生成退出后执行的脚本」功能：移除 /config-sync/prepare 路由、前端动作卡与三份 .cmd 生成逻辑；推送/拉取/还原统一走「点按钮排队 → DSH 退出后 post-exit.ps1 自动执行 → 重启」的立即机制，其余功能不变。",
-  "notesEn": "Removed the \"generate post-exit scripts\" feature: dropped the /config-sync/prepare route, the front-end action card and the three .cmd generators. Push/pull/restore now all use the queue → exit → post-exit.ps1 → restart flow; everything else is unchanged.",
+  "notes": "面板显示层视觉重构（纯样式，功能零改动）：\n1) 注入独立 <style id=\"dsh-config-sync-theme\">，幂等加载，不引 Tailwind / shadcn / Google Fonts，不新增依赖；\n2) 杂志编辑风格：刊头眉标（DSH 插件 · 配置同步 + 版本号）、章节序号眉标（01 · 状态 … 10 · 反馈）、细线分隔、等宽字体元信息；\n3) 跳转条由胶囊按钮改为下划线 tab（当前区品牌色 2px 下划线 + 加粗）；\n4) 卡片悬停上浮 + 顶部渐变细线，章节 staggered fade-up 入场（55ms 递增），warn/error 徽标呼吸；\n5) 全部色值走宿主 --dsw-alias-* token，深浅色自动跟随；prefers-reduced-motion 全量降级。\n接口、请求体、状态判据、文案词条、分区顺序与 0.4.25 完全一致（selftest 416 项、clientcheck 全通过、深度渲染 0 失败）。",
+  "notesEn": "Visual refactor of the panel display layer (pure styling, zero behaviour change):\n1) Injects a standalone <style id=\"dsh-config-sync-theme\">, loaded idempotently; no Tailwind / shadcn / Google Fonts, no new dependencies;\n2) Magazine-editorial look: masthead eyebrow (DSH PLUGIN · CONFIG SYNC + version), chapter eyebrows (01 · Status … 10 · Feedback), hairline rules, monospace metadata;\n3) Jump bar switched from pill buttons to underlined tabs (2px brand underline + bold on the active section);\n4) Cards lift on hover with a gradient top hairline; sections enter with a staggered fade-up (55ms steps); warn/error chips breathe;\n5) All colours come from host --dsw-alias-* tokens so light/dark follow automatically; prefers-reduced-motion fully degrades.\nInterfaces, request bodies, state predicates, copy strings and section order are identical to 0.4.25 (selftest 416 checks, clientcheck all green, deep render 0 failures).",
   "minClient": "0.2.2-rc.2"
 }

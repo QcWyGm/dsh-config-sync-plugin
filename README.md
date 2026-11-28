@@ -277,6 +277,18 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 面板视觉重构：杂志编辑风格（0.4.26）
+
+本版只动**显示层**，接口、请求体、状态判据、文案词条、分区顺序与 0.4.25 完全一致，行为零改动。
+
+- **不引任何前端依赖**：样式通过一段 `<style id="dsh-config-sync-theme">` 注入，`injectTheme()` 幂等（已存在就直接返回），`apply()` 首行调用。没有 Tailwind / shadcn / Google Fonts，包体不增大。
+- **刊头与章节眉标**：页头加一行眉标「DSH 插件 · 配置同步 ——— v0.4.26」；每个分区标题上方加序号眉标（`01 · 状态`、`02 · 冲突` … `10 · 反馈`）+ 右侧细线 + 一句话说明。
+- **跳转条改下划线 tab**：原来是胶囊按钮，现在是无边框 tab，当前区用品牌色 2px 下划线 + 加粗标出，等宽大写小字号。
+- **卡片与动效**：卡片悬停上浮 2px + 顶部渐变细线；分区入场 staggered fade-up（55ms 递增延迟）；warn / error 徽标缓慢呼吸。`prefers-reduced-motion: reduce` 下动效全部关闭。
+- **配色全部走宿主 token**：只用 `--dsw-alias-*` 与两个新定义的品牌色 HSL 变量，深浅色主题自动跟随，不写死色值；字体栈避开 Inter / Roboto / Arial。
+
+实测：`node --check` 双文件通过、`tools/selftest.mjs` **416 项全 OK / 0 失败 / 0 跳过**、`tools/clientcheck.mjs` 全通过、真实 React 运行时深度渲染（4 套数据形态、28 个按钮、5 个输入）0 失败，面板浅色/深色两版目视正常。
+
 ### 0.4.23（2026-11-28）
 
 - **跨机隐藏对齐**：修复「另一台机器拉取后工作台多出 MnemonSkills 会话 / 未命名会话」。Mnemon 后台会话（id 前缀 `mnemon-*`）与子代理会话（纯 uuid id）本来就会被登记进各机 workspace.json 并随同步带到对端；DSH 对 `origin=subagent` 与空会话有视图级折叠，但同步来的会话不在折叠边界时（如 mnemon-task 带 turn/start、同步日志里的首条用户消息让空会话判定失效），对端就会把它们列出来。拉取时现在把这两类会话 id 并进 `global.archivedSessionIds`（DSH 原生隐藏通道，列表/搜索/打开全链路拦截）：**会话体照常同步保留，只是工作台不再显示**；主会话（`session-` 前缀）不受影响，本机手动隐藏/归档的会话照常保留。升级后重新点「立即拉取」即自动对齐。

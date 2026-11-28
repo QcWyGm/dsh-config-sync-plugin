@@ -33,6 +33,107 @@ window.__ModuleLoader__.load({
     const inject = ['slots']
     const PANEL_ID = 'config-sync'
 
+    // ── 设计系统（杂志编辑 + 极简）──────────────────────────────────────────────
+    // 只往 document.head 插一段 <style>，不引 Tailwind/shadcn/Google Fonts，不覆盖宿主 token。
+    const THEME_ID = 'dsh-config-sync-theme'
+    const THEME_CSS = [
+      ":root {",
+      "  --cs-font-display: \"Space Grotesk\", \"Syne\", \"Segoe UI Variable Display\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif;",
+      "  --cs-font-ui: \"IBM Plex Sans\", \"DM Sans\", \"Segoe UI Variable Text\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif;",
+      "  --cs-font-mono: \"JetBrains Mono\", \"Fira Code\", \"Cascadia Code\", Consolas, ui-monospace, monospace;",
+      "  --cs-brand: 222 88% 52%;",
+      "  --cs-accent: 32 96% 54%;",
+      "  --cs-ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);",
+      "  --cs-ring: 0 0 0 3px hsl(var(--cs-brand) / 0.16);",
+      "  --cs-lift: 0 18px 38px -20px hsl(220 40% 12% / 0.36);",
+      "}",
+      ".cs-scope {",
+      "  font-family: var(--cs-font-ui);",
+      "  -webkit-font-smoothing: antialiased;",
+      "  text-rendering: optimizeLegibility;",
+      "}",
+      ".cs-root {",
+      "  background-image:",
+      "    radial-gradient(1080px 440px at 4% -14%, hsl(var(--cs-brand) / 0.10), transparent 68%),",
+      "    radial-gradient(860px 420px at 100% -20%, hsl(var(--cs-accent) / 0.08), transparent 70%);",
+      "  background-repeat: no-repeat;",
+      "  background-size: 100% 100%;",
+      "}",
+      ".cs-scope button { font-family: var(--cs-font-ui); letter-spacing: 0.2px; }",
+      ".cs-scope button:hover:not(:disabled) { transform: translateY(-1px); }",
+      ".cs-scope button:active:not(:disabled) { transform: translateY(0) scale(0.985); }",
+      ".cs-scope button:focus-visible { outline: none; box-shadow: var(--cs-ring); }",
+      ".cs-scope input, .cs-scope textarea, .cs-scope select { transition: box-shadow .15s ease, border-color .15s ease; }",
+      ".cs-scope input:focus, .cs-scope textarea:focus, .cs-scope select:focus { outline: none; box-shadow: var(--cs-ring); }",
+      ".cs-scope .cs-card {",
+      "  position: relative;",
+      "  overflow: hidden;",
+      "  transition: transform .18s var(--cs-ease), box-shadow .18s var(--cs-ease), border-color .18s ease;",
+      "}",
+      ".cs-scope .cs-card::before {",
+      "  content: '';",
+      "  position: absolute;",
+      "  inset: 0 0 auto 0;",
+      "  height: 2px;",
+      "  background: linear-gradient(90deg, hsl(var(--cs-brand) / 0.55), hsl(var(--cs-accent) / 0.35));",
+      "  opacity: 0;",
+      "  transition: opacity .2s ease;",
+      "  pointer-events: none;",
+      "}",
+      ".cs-scope .cs-card:hover { transform: translateY(-2px); box-shadow: var(--cs-lift); }",
+      ".cs-scope .cs-card:hover::before { opacity: 1; }",
+      ".cs-section { animation: cs-fade-up .46s var(--cs-ease) both; }",
+      ".cs-chip-warn { animation: cs-breathe 2.4s ease-in-out infinite; }",
+      ".cs-chip-error { animation: cs-breathe 1.6s ease-in-out infinite; }",
+      ".cs-toast { animation: cs-toast-in .32s var(--cs-ease) both; }",
+      "@keyframes cs-fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }",
+      "@keyframes cs-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .62; } }",
+      "@keyframes cs-toast-in { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }",
+      ".cs-scope ::-webkit-scrollbar { width: 10px; height: 10px; }",
+      ".cs-scope ::-webkit-scrollbar-track { background: transparent; }",
+      ".cs-scope ::-webkit-scrollbar-thumb {",
+      "  background: var(--dsw-alias-border-l2);",
+      "  border: 3px solid transparent;",
+      "  border-radius: 999px;",
+      "  background-clip: content-box;",
+      "}",
+      "@media (prefers-reduced-motion: reduce) {",
+      "  .cs-section, .cs-chip-warn, .cs-chip-error, .cs-toast { animation: none; }",
+      "  .cs-scope button:hover:not(:disabled), .cs-scope .cs-card:hover { transform: none; }",
+      "  .cs-scope button:active:not(:disabled) { transform: none; }",
+      "}",
+    ].join('\n')
+
+    // 样式只插一次：卸载时不回收，重新挂载复用同一份（幂等，避免重复 <style>）
+    function injectTheme() {
+      try {
+        if (typeof document === 'undefined' || !document.head) return
+        if (document.getElementById(THEME_ID)) return
+        const style = document.createElement('style')
+        style.id = THEME_ID
+        style.textContent = THEME_CSS
+        document.head.appendChild(style)
+      } catch (error) {
+        try { console.warn('[dsh-config-sync] theme injection failed:', error) } catch { }
+      }
+    }
+
+    // 分区章节号：页头眉标与 Section 眉标共用同一套序号，顺序即页面顺序
+    const CHAPTER_LABEL = {
+      overview: ['01 · 状态', '01 · Status'],
+      conflict: ['02 · 冲突', '02 · Conflict'],
+      roots: ['03 · 路径', '03 · Paths'],
+      targets: ['04 · 目标', '04 · Targets'],
+      automation: ['05 · 自动化', '05 · Automation'],
+      restore: ['06 · 还原', '06 · Restore'],
+      scope: ['07 · 范围', '07 · Scope'],
+      extra: ['08 · 插件数据', '08 · Plugin data'],
+      workspace: ['09 · 工作区', '09 · Workspace'],
+      feedback: ['10 · 反馈', '10 · Feedback'],
+    }
+    const SECTION_SEQ = ['overview', 'conflict', 'roots', 'targets', 'automation', 'restore', 'scope', 'extra', 'workspace', 'feedback']
+    const chapterOf = (id) => { const pair = CHAPTER_LABEL[id]; return pair ? M(pair[0], pair[1]) : '' }
+
     /**
      * 语言：跟随客户端。zh-* 走中文，其余一律英文。
      *
@@ -78,97 +179,117 @@ window.__ModuleLoader__.load({
       row: { display: 'flex', flexDirection: 'column', gap: '6px', padding: '6px 0', width: '100%' },
       head: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', width: '100%' },
       headText: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 },
-      title: { fontSize: '14px', lineHeight: '20px', color: 'var(--dsw-alias-label-primary)' },
+      title: { fontFamily: 'var(--cs-font-display)', fontSize: '14.5px', lineHeight: '21px', fontWeight: 600, letterSpacing: '-0.1px', color: 'var(--dsw-alias-label-primary)' },
       sub: { fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)', wordBreak: 'break-all' },
       chip: { display: 'inline-flex', alignItems: 'center', fontSize: '11px', lineHeight: '16px', padding: '2px 9px', borderRadius: '999px', whiteSpace: 'nowrap', letterSpacing: '0.2px' },
       btn: {
-        fontSize: '12px', lineHeight: '20px', padding: '5px 13px', borderRadius: '8px', cursor: 'pointer',
-        border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-base)',
-        color: 'var(--dsw-alias-label-primary)', transition: 'background .15s ease, border-color .15s ease',
+        fontSize: '12px', lineHeight: '20px', padding: '6px 14px', borderRadius: '9px', cursor: 'pointer',
+        border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent',
+        color: 'var(--dsw-alias-label-primary)', fontWeight: 500, letterSpacing: '0.2px',
+        transition: 'background .15s ease, border-color .15s ease, transform .12s var(--cs-ease)',
       },
       btnPrimary: {
-        fontSize: '12px', lineHeight: '20px', padding: '5px 13px', borderRadius: '8px', cursor: 'pointer',
+        fontSize: '12px', lineHeight: '20px', padding: '6px 15px', borderRadius: '9px', cursor: 'pointer',
         border: '1px solid var(--dsw-alias-button-primary-fill)',
         background: 'var(--dsw-alias-button-primary-fill)',
-        color: 'var(--dsw-alias-label-primary-foreground)', fontWeight: 600,
-        transition: 'background .15s ease, border-color .15s ease',
+        color: 'var(--dsw-alias-label-primary-foreground)', fontWeight: 600, letterSpacing: '0.2px',
+        transition: 'background .15s ease, border-color .15s ease, transform .12s var(--cs-ease)',
       },
       // 面板整页：竖向两段式 —— 页头固定在上、下面这段才是滚动区
-      // 只有这样内容才不会滚过标题，跳转后分区标题也一定落在主标题下方
       page: {
         height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxSizing: 'border-box', background: 'var(--dsw-alias-bg-base)',
         color: 'var(--dsw-alias-label-primary)',
       },
       pageHeaderWrap: {
-        flex: '0 0 auto', zIndex: 50, padding: '24px 28px 0',
+        flex: '0 0 auto', zIndex: 50, padding: '26px 30px 0',
         background: 'var(--dsw-alias-bg-base)',
       },
-      pageHeaderInner: { maxWidth: '1140px', margin: '0 auto' },
+      pageHeaderInner: { maxWidth: '1180px', margin: '0 auto' },
       pageBody: {
         flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
-        padding: '20px 28px 36px', boxSizing: 'border-box',
+        padding: '26px 30px 56px', boxSizing: 'border-box',
       },
-      pageInner: { maxWidth: '1140px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' },
-      pageTitle: { fontSize: '20px', lineHeight: '28px', fontWeight: 700, letterSpacing: '0.3px', color: 'var(--dsw-alias-label-primary)' },
-      pageLead: { fontSize: '12px', lineHeight: '19px', color: 'var(--dsw-alias-label-tertiary)', margin: 0, maxWidth: '820px' },
+      pageInner: { maxWidth: '1180px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '34px' },
+      pageTitle: { fontFamily: 'var(--cs-font-display)', fontSize: '30px', lineHeight: '1.12', fontWeight: 700, letterSpacing: '-0.8px', color: 'var(--dsw-alias-label-primary)' },
+      pageLead: { fontSize: '12.5px', lineHeight: '20px', color: 'var(--dsw-alias-label-tertiary)', margin: 0, maxWidth: '640px' },
+      // 刊头眉标：一行等宽小字 + 细线 + 右侧版本号，杂志刊头的第一行
+      eyebrow: {
+        display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'nowrap', width: '100%', overflow: 'hidden',
+      },
+      eyebrowText: {
+        fontFamily: 'var(--cs-font-mono)', fontSize: '10.5px', lineHeight: '16px', flexShrink: 0,
+        letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--dsw-alias-label-tertiary)',
+      },
+      eyebrowRule: { flex: '1 1 auto', minWidth: '16px', height: '1px', background: 'var(--dsw-alias-border-l1)' },
+      eyebrowTag: {
+        fontFamily: 'var(--cs-font-mono)', fontSize: '10.5px', lineHeight: '16px', flexShrink: 0,
+        letterSpacing: '0.8px', color: 'var(--dsw-alias-label-quaternary, var(--dsw-alias-label-tertiary))',
+      },
       // 页头：左侧「标题 + 徽标 + 元信息 + 一句说明」，右侧独立操作区，底部一条分隔线
       pageHeader: {
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap',
-        padding: '2px 0 18px', borderBottom: '1px solid var(--dsw-alias-border-l1)',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '22px', flexWrap: 'wrap',
+        padding: '2px 0 16px', borderBottom: '1px solid var(--dsw-alias-border-l1)',
       },
-      pageHeaderMain: { display: 'flex', flexDirection: 'column', gap: '10px', minWidth: 0, flex: '1 1 460px' },
+      pageHeaderMain: { display: 'flex', flexDirection: 'column', gap: '11px', minWidth: 0, flex: '1 1 520px' },
       pageTitleRow: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' },
       badgeGroup: { display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
-      badgeKey: { fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' },
+      badgeKey: { fontFamily: 'var(--cs-font-mono)', fontSize: '10px', lineHeight: '16px', letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--dsw-alias-label-tertiary)' },
       headerActions: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '2px' },
       // 标题下的一行元信息：小灰点分隔，只放"一眼要看"的事实，长句一律不进这里
       meta: {
         display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 10px',
-        fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)',
-        fontFamily: 'Consolas, ui-monospace, monospace',
+        fontFamily: 'var(--cs-font-mono)', fontSize: '11.5px', lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)',
       },
       metaSep: { color: 'var(--dsw-alias-label-quaternary, var(--dsw-alias-label-tertiary))', opacity: 0.8 },
       // 指标条：替代原来两张 Kv 卡，5 个小格子一行看完
       strip: {
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
-        gap: '1px', borderRadius: '12px', overflow: 'hidden',
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))',
+        gap: '1px', borderRadius: '14px', overflow: 'hidden',
         border: '1px solid var(--dsw-alias-border-l1)',
         background: 'var(--dsw-alias-border-l1)',
       },
       metric: {
-        display: 'flex', flexDirection: 'column', gap: '4px', padding: '11px 10px', minWidth: 0,
+        display: 'flex', flexDirection: 'column', gap: '4px', padding: '13px 14px', minWidth: 0,
         background: 'var(--dsw-alias-settings-card-fill)',
       },
-      metricLabel: { fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap', letterSpacing: '0.2px', overflow: 'hidden', textOverflow: 'ellipsis' },
+      metricLabel: {
+        fontFamily: 'var(--cs-font-mono)', fontSize: '10px', lineHeight: '16px', fontWeight: 600,
+        letterSpacing: '0.9px', textTransform: 'uppercase', color: 'var(--dsw-alias-label-tertiary)',
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+      },
       metricValue: {
-        fontSize: '14px', lineHeight: '20px', fontWeight: 600, color: 'var(--dsw-alias-label-primary)',
-        fontFamily: 'Consolas, ui-monospace, monospace', wordBreak: 'break-all',
+        fontFamily: 'var(--cs-font-display)', fontSize: '19px', lineHeight: '26px', fontWeight: 600,
+        letterSpacing: '-0.3px', color: 'var(--dsw-alias-label-primary)', wordBreak: 'break-all',
       },
       // 卡片标题行：标题 + 右侧状态/操作，统一成一行
       cardHead: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
       // 卡片底部的一行灰字（原先是整段解释，压缩成一句）
       footnote: { fontSize: '11px', lineHeight: '17px', color: 'var(--dsw-alias-label-tertiary)', overflowWrap: 'break-word' },
-      // 卡片分组：小标题前面一根主色竖条当视觉锚点，网格宽屏两列 / 窄屏单列、卡片等高
-      section: { display: 'flex', flexDirection: 'column', gap: '12px' },
-      sectionHead: { display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap' },
-      sectionTitle: {
-        display: 'flex', alignItems: 'center', gap: '9px',
-        paddingLeft: '10px', borderLeft: '3px solid var(--dsw-alias-toast-action)',
-        fontSize: '13px', lineHeight: '20px', fontWeight: 700, letterSpacing: '0.3px',
-        color: 'var(--dsw-alias-label-primary)',
+      // 卡片分组：章节眉标 + 标题 + 右侧细线 + 说明
+      section: { display: 'flex', flexDirection: 'column', gap: '14px' },
+      sectionHead: { display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' },
+      sectionHeadMain: { display: 'flex', alignItems: 'baseline', gap: '10px', flexShrink: 0 },
+      sectionKicker: {
+        fontFamily: 'var(--cs-font-mono)', fontSize: '10px', lineHeight: '16px', fontWeight: 600,
+        letterSpacing: '1.2px', textTransform: 'uppercase', color: 'hsl(var(--cs-brand) / 0.85)',
       },
-      sectionHint: { fontSize: '11px', lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' },
+      sectionTitle: {
+        fontFamily: 'var(--cs-font-display)', fontSize: '17px', lineHeight: '24px', fontWeight: 700,
+        letterSpacing: '-0.3px', color: 'var(--dsw-alias-label-primary)',
+      },
+      sectionRule: { flex: '1 1 60px', minWidth: '24px', height: '1px', background: 'var(--dsw-alias-border-l1)' },
+      sectionHint: { fontSize: '11.5px', lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)', maxWidth: '560px' },
       grid: {
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
-        gap: '12px', alignItems: 'stretch',
+        gap: '14px', alignItems: 'stretch',
       },
       card: {
-        display: 'flex', flexDirection: 'column', gap: '10px', padding: '15px 16px', minWidth: 0,
-        border: '1px solid var(--dsw-alias-border-l1)', borderRadius: '12px',
+        display: 'flex', flexDirection: 'column', gap: '10px', padding: '18px 20px', minWidth: 0,
+        border: '1px solid var(--dsw-alias-border-l1)', borderRadius: '14px',
         background: 'var(--dsw-alias-settings-card-fill)',
       },
-      cardTitle: { fontSize: '13px', lineHeight: '18px', fontWeight: 600, color: 'var(--dsw-alias-label-primary)' },
+      cardTitle: { fontFamily: 'var(--cs-font-display)', fontSize: '13.5px', lineHeight: '19px', fontWeight: 600, letterSpacing: '-0.1px', color: 'var(--dsw-alias-label-primary)' },
       kvRow: { display: 'flex', gap: '10px', fontSize: '12px', lineHeight: '18px', alignItems: 'flex-start', padding: '2px 0' },
       kvKey: { minWidth: '100px', width: '100px', flexShrink: 0, color: 'var(--dsw-alias-label-tertiary)' },
       kvVal: { flex: 1, minWidth: 0, color: 'var(--dsw-alias-label-secondary)', overflowWrap: 'break-word' },
@@ -178,7 +299,7 @@ window.__ModuleLoader__.load({
       code: {
         fontSize: '12px', lineHeight: '18px', padding: '9px 11px', borderRadius: '8px',
         background: 'var(--dsw-alias-fill-l1, var(--dsw-alias-bg-layer-2))', color: 'var(--dsw-alias-label-secondary)',
-        fontFamily: 'Consolas, ui-monospace, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+        fontFamily: 'var(--cs-font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
       },
       panel: {
         display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px',
@@ -189,13 +310,13 @@ window.__ModuleLoader__.load({
         flex: 1, minWidth: 0, fontSize: '12px', lineHeight: '18px', padding: '6px 10px',
         borderRadius: '8px', border: '1px solid var(--dsw-alias-border-l1)',
         background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)',
-        fontFamily: 'Consolas, ui-monospace, monospace', outline: 'none',
+        fontFamily: 'var(--cs-font-mono)', outline: 'none',
       },
       inputReadonly: {
         flex: 1, minWidth: 0, fontSize: '12px', lineHeight: '18px', padding: '6px 10px',
         borderRadius: '8px', border: '1px solid transparent',
         background: 'transparent', color: 'var(--dsw-alias-label-secondary)',
-        fontFamily: 'Consolas, ui-monospace, monospace',
+        fontFamily: 'var(--cs-font-mono)',
       },
     }
 
@@ -221,10 +342,20 @@ window.__ModuleLoader__.load({
     function Section(title, hint, cards, id) {
       const list = (cards || []).filter(Boolean)
       if (!list.length) return null
-      return h('div', { id: id ? 'sync-section-' + id : undefined, style: id ? { ...S.section, scrollMarginTop: '8px' } : S.section },
+      // 入场动画按分区序号错开 55ms：整页一次性铺开时不会显得同时「闪」一下
+      const chapter = chapterOf(id)
+      const seq = SECTION_SEQ.indexOf(id)
+      const delay = (seq < 0 ? 0 : seq) * 55
+      const style = id
+        ? { ...S.section, scrollMarginTop: '8px', animationDelay: delay + 'ms' }
+        : { ...S.section, animationDelay: delay + 'ms' }
+      return h('div', { id: id ? 'sync-section-' + id : undefined, className: 'cs-section', style },
         h('div', { style: S.sectionHead },
-          h('div', { style: S.sectionTitle }, title),
-          hint ? h('span', { style: { ...S.sectionHint, opacity: 0.75 } }, `· `) : null,
+          h('div', { style: S.sectionHeadMain },
+            chapter ? h('div', { style: S.sectionKicker }, chapter) : null,
+            h('div', { style: S.sectionTitle }, title),
+          ),
+          h('div', { style: S.sectionRule }, null),
           hint ? h('div', { style: S.sectionHint }, hint) : null,
         ),
         h('div', { style: S.grid }, list),
@@ -596,10 +727,10 @@ window.__ModuleLoader__.load({
             placeholder: M('D:\\dsh-config（那台机器上装仓库的目录）', 'D:\\dsh-config (directory holding the repo on this machine)'),
             onChange: (e) => setPath(e.target.value),
           })
-          : h('div', { style: { ...S.kvVal, fontFamily: 'Consolas, ui-monospace, monospace' } }, repo.path || M('（未配置）', '(not set)')),
+          : h('div', { style: { ...S.kvVal, fontFamily: 'var(--cs-font-mono)' } }, repo.path || M('（未配置）', '(not set)')),
       )
 
-      return h('div', { style: S.card },
+      return h('div', { className: 'cs-card', style: S.card },
         h('div', { style: S.cardHead },
           h('div', { style: S.cardTitle }, M('本机仓库', 'Local repo')),
           isEditing && forced
@@ -710,10 +841,10 @@ window.__ModuleLoader__.load({
             type: 'text', style: S.input, value, placeholder, spellCheck: false,
             onChange: (e) => onChange(e.target.value),
           })
-          : h('div', { style: { ...S.kvVal, fontFamily: 'Consolas, ui-monospace, monospace' } }, value || M('（未配置）', '(not set)')),
+          : h('div', { style: { ...S.kvVal, fontFamily: 'var(--cs-font-mono)' } }, value || M('（未配置）', '(not set)')),
       )
 
-      return h('div', { style: S.card },
+      return h('div', { className: 'cs-card', style: S.card },
         h('div', { style: S.cardHead },
           h('div', { style: S.cardTitle }, M('云端仓库', 'Cloud repo')),
           isEditing && missing
@@ -894,7 +1025,7 @@ window.__ModuleLoader__.load({
             h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
               kindBadge(kindOf(s)),
               h('div', {
-                style: { fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-primary)', fontFamily: 'Consolas, ui-monospace, monospace', wordBreak: 'break-all' },
+                style: { fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-primary)', fontFamily: 'var(--cs-font-mono)', wordBreak: 'break-all' },
               }, s.name)),
             h('div', { style: S.hint },
               `${when(s.at)} · ${rel(s.at)} · ${snapSummary(s)}`
@@ -925,7 +1056,7 @@ window.__ModuleLoader__.load({
           h('div', { style: { ...S.hint, color: tone || 'var(--dsw-alias-label-secondary)' } }, title),
           h('div', {
             style: {
-              ...S.hint, fontFamily: 'Consolas, ui-monospace, monospace',
+              ...S.hint, fontFamily: 'var(--cs-font-mono)',
               maxHeight: '110px', overflowY: 'auto', wordBreak: 'break-all',
             },
           }, items.join('  ·  ')))
@@ -1031,7 +1162,7 @@ window.__ModuleLoader__.load({
         ? h('div', { style: boxStyle },
           h('div', { style: { ...S.cardTitle, fontSize: '13px' } }, M(`手动还原：${manual.name}`, `Manual restore: ${manual.name}`)),
           h('div', {
-            style: { ...S.hint, fontFamily: 'Consolas, ui-monospace, monospace', wordBreak: 'break-all' },
+            style: { ...S.hint, fontFamily: 'var(--cs-font-mono)', wordBreak: 'break-all' },
           }, M(`备份位置：${manual.dir}`, `Backup path: ${manual.dir}`)),
           h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-warning-primary)' } }, M(
             '这份备份认不出类型，自动还原不知道该写回哪，按下面三步手动拷：',
@@ -1042,7 +1173,7 @@ window.__ModuleLoader__.load({
           manualTargets().map((line, i) => h('div', { key: 'mt' + i, style: { ...S.hint, paddingLeft: '12px' } }, line)),
           manual.entryNames && manual.entryNames.length
             ? h('div', {
-              style: { ...S.hint, paddingLeft: '12px', fontFamily: 'Consolas, ui-monospace, monospace', wordBreak: 'break-all' },
+              style: { ...S.hint, paddingLeft: '12px', fontFamily: 'var(--cs-font-mono)', wordBreak: 'break-all' },
             }, M('这份里看到：', 'Contains: ') + manual.entryNames.join('  ·  '))
             : null,
           h('div', { style: S.hint }, M('3. 拷之前把目标位置现有文件另存一份；拷完重启客户端。', '3. Back up the target first, then copy and restart the client.')),
@@ -1069,10 +1200,10 @@ window.__ModuleLoader__.load({
           ))
         : null
 
-      return h('div', { style: S.card },
+      return h('div', { className: 'cs-card', style: S.card },
         h('div', { style: S.cardHead },
           h('div', { style: S.cardTitle }, M('还原备份', 'Restore backup')),
-          h('span', { style: { ...S.footnote, fontFamily: 'Consolas, ui-monospace, monospace' } },
+          h('span', { style: { ...S.footnote, fontFamily: 'var(--cs-font-mono)' } },
             backup.exists ? M(`${backup.count || 0} 份快照`, `${backup.count || 0} snapshot(s)`) : M('目录不存在', 'folder missing')),
           h('div', { style: { flex: 1 } }, null),
           h('div', { style: S.actions },
@@ -1093,7 +1224,7 @@ window.__ModuleLoader__.load({
               placeholder: defaultRoot || M('留空 = 默认 <用户目录>\\.dsh\\backups', 'Empty = default <home>\\.dsh\\backups'),
               onChange: (e) => setRoot(e.target.value),
             })
-            : h('div', { style: { ...S.kvVal, fontFamily: 'Consolas, ui-monospace, monospace' } },
+            : h('div', { style: { ...S.kvVal, fontFamily: 'var(--cs-font-mono)' } },
               `${remote.backupRoot || backup.root || defaultRoot}${(remote.backupRootCustom ? M('（本机设置）', ' (machine setting)') : M('（默认）', ' (default)'))}`),
         ),
         rows,
@@ -1142,7 +1273,7 @@ window.__ModuleLoader__.load({
       }
 
       if (!state) {
-        return h('div', { style: S.card },
+        return h('div', { className: 'cs-card', style: S.card },
           h('div', { style: S.cardTitle }, M('同步冲突', 'Sync conflicts')),
           h('div', { style: S.hint }, err
             ? M(`读取失败：${err}`, `Read failed: ${err}`)
@@ -1197,7 +1328,7 @@ window.__ModuleLoader__.load({
           style: {
             margin: 0, padding: '6px 8px', maxHeight: '180px', overflow: 'auto',
             fontSize: '11px', lineHeight: '16px', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            fontFamily: 'Consolas, ui-monospace, monospace',
+            fontFamily: 'var(--cs-font-mono)',
             border: '1px solid var(--dsw-alias-border-l1)', borderRadius: '6px',
             background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))',
           },
@@ -1217,7 +1348,7 @@ window.__ModuleLoader__.load({
             h('span', { style: { flexShrink: 0, width: '10px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, expanded ? '▾' : '▸'),
             h('div', { style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px' } },
               h('div', {
-                style: { fontSize: '12px', lineHeight: '18px', fontFamily: 'Consolas, ui-monospace, monospace', wordBreak: 'break-all' },
+                style: { fontSize: '12px', lineHeight: '18px', fontFamily: 'var(--cs-font-mono)', wordBreak: 'break-all' },
               }, it.path),
               h('div', { style: S.hint },
                 M(
@@ -1273,7 +1404,7 @@ window.__ModuleLoader__.load({
         )
       })
 
-      return h('div', { style: S.card },
+      return h('div', { className: 'cs-card', style: S.card },
         h('div', { style: S.cardHead },
           h('div', { style: S.cardTitle }, M('同步冲突', 'Sync conflicts')),
           h('span', { style: { ...S.footnote } },
@@ -1419,13 +1550,13 @@ window.__ModuleLoader__.load({
       }
 
       if (!data || !draft) {
-        return h('div', { style: S.card },
+        return h('div', { className: 'cs-card', style: S.card },
           h('div', { style: S.cardTitle }, M('插件数据与额外路径', 'Plugin data & extra paths')),
           h('div', { style: S.hint }, err ? M(`读取失败：${err}`, `Read failed: ${err}`) : M('正在读取规则…', 'Loading rules…')))
       }
 
       const hardMB = Math.round(data.hardMaxBytes / (1024 * 1024))
-      return h('div', { style: S.card },
+      return h('div', { className: 'cs-card', style: S.card },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           h('div', { style: S.cardTitle }, M('插件数据与额外路径', 'Plugin data & extra paths')),
           h('div', { style: { ...S.hint, flex: 1, minWidth: '160px' } },
@@ -1480,7 +1611,7 @@ window.__ModuleLoader__.load({
           value: draft.excludeText, spellCheck: false, readOnly: !editing,
           onChange: (e) => setDraft({ ...draft, excludeText: e.target.value }),
           style: {
-            width: '100%', boxSizing: 'border-box', minHeight: '96px', fontFamily: 'ui-monospace, Consolas, monospace',
+            width: '100%', boxSizing: 'border-box', minHeight: '96px', fontFamily: 'var(--cs-font-mono)',
             fontSize: '12px', lineHeight: '16px',
             background: editing ? undefined : 'var(--dsw-alias-bg-secondary, #f7f7f8)',
           },
@@ -1573,7 +1704,7 @@ window.__ModuleLoader__.load({
       const stop = (e) => e.stopPropagation()
 
       if (!data || !data.available) {
-        return h('div', { style: S.card },
+        return h('div', { className: 'cs-card', style: S.card },
           h('div', { style: S.cardTitle }, M('工作区显示状态', 'Workspace visibility')),
           h('div', { style: S.hint }, err ? M('读取失败：' + err, 'Read failed: ' + err) : M('本机还没有工作区数据，DSH 初始化后可用。', 'No workspace data yet — available after DSH initializes.')))
       }
@@ -1582,7 +1713,7 @@ window.__ModuleLoader__.load({
       const archived = wss.filter(w => w.state === 'archive').length
       const agentHidden = Number(data.agentHidden || 0)
       const blankHidden = Number(data.blankHidden || 0)
-      return h('div', { style: S.card },
+      return h('div', { className: 'cs-card', style: S.card },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           h('div', { style: S.cardTitle }, M('工作区显示状态', 'Workspace visibility')),
           h('div', { style: { ...S.hint, flex: 1, minWidth: '160px' } },
@@ -1664,7 +1795,7 @@ window.__ModuleLoader__.load({
                       w.state === 'partial' ? h('option', { value: 'partial' }, stateLabel('partial')) : null,
                       opts.map(([v, label]) => h('option', { key: v, value: v }, label)),
                     )
-                    : h('span', { style: chipStyle(wsTone) }, stateLabel(w.state)),
+                    : h('span', { className: 'cs-chip cs-chip-' + wsTone, style: chipStyle(wsTone) }, stateLabel(w.state)),
                   h('span', { style: { ...S.footnote, flex: 1 } }, M(w.sessionCount + ' 会话 · ' + w.hiddenCount + ' 隐藏', w.sessionCount + ' sessions · ' + w.hiddenCount + ' hidden')),
                 ),
                 // 展开的会话列表：每行是「会话名 + 它自己的开关」，按钮与会话同一行、紧跟其名，
@@ -1787,7 +1918,7 @@ window.__ModuleLoader__.load({
       const cancelEdit = () => { setMsg(''); setErr(''); setEditing(false); load() }
 
       if (!state) {
-        return h('div', { style: S.card },
+        return h('div', { className: 'cs-card', style: S.card },
           h('div', { style: S.cardTitle }, M('同步内容', 'Sync content')),
           h('div', { style: S.hint }, err ? M(`读取失败：${err}`, `Read failed: ${err}`) : M('正在读取同步范围…', 'Loading sync scope…')),
         )
@@ -1796,7 +1927,7 @@ window.__ModuleLoader__.load({
       const total = state.groups.reduce((n, g) => n + (g.items || []).length, 0)
       const checked = state.groups.reduce((n, g) => (g.enabled === false ? n : n + (g.items || []).filter((i) => i.enabled !== false).length), 0)
 
-      return h('div', { style: S.card },
+      return h('div', { className: 'cs-card', style: S.card },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           h('div', { style: S.cardTitle }, M('同步内容', 'Sync content')),
           h('div', { style: { ...S.hint, flex: 1, minWidth: '160px' } },
@@ -1992,7 +2123,7 @@ window.__ModuleLoader__.load({
       const pending = auto.pending
       // 后台调度拿不到请求语言，宿主把原因中英各存一份，这里按当前界面语言挑
       const pendingReason = pending ? (langIsZh() ? (pending.reasonZh || pending.reason) : (pending.reasonEn || pending.reason)) : ''
-      return h('div', { style: S.card },
+      return h('div', { className: 'cs-card', style: S.card },
         h('div', { style: S.cardHead },
           h('div', { style: S.cardTitle }, M('自动同步', 'Auto sync')),
           h('div', { style: { ...S.footnote, flex: 1 } }, M('默认关闭；不开就是纯手动', 'Off by default — leaving them off keeps it manual')),
@@ -2445,10 +2576,10 @@ window.__ModuleLoader__.load({
               : (failed
                 ? M(`读不到更新清单：${u.error || '未知原因'}${sourceNote}`, `Cannot read the manifest: ${u.error || 'unknown reason'}${sourceNote}`)
                 : (u.checkedAt ? M(`当前 ${local}，云端没有更新的版本`, `Current ${local}; no newer version upstream`) : M('正在读云端版本清单…', 'Reading the cloud manifest…')))))
-        return h('div', { style: S.card },
+        return h('div', { className: 'cs-card', style: S.card },
           h('div', { style: S.cardHead },
             h('div', { style: S.cardTitle }, M('插件更新', 'Plugin update')),
-            h('span', { style: chipStyle(kind) }, label),
+            h('span', { className: 'cs-chip cs-chip-' + kind, style: chipStyle(kind) }, label),
             h('div', { style: { flex: 1, minWidth: '8px' } }, null),
             h('div', { style: S.actions },
               restartRequired
@@ -2616,7 +2747,7 @@ window.__ModuleLoader__.load({
                 ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', padding: '2px 0 2px 20px' } },
                   items.map((name, j) => h('div', {
                     key: j,
-                    style: { ...S.footnote, fontFamily: 'Consolas, ui-monospace, monospace', wordBreak: 'break-all' },
+                    style: { ...S.footnote, fontFamily: 'var(--cs-font-mono)', wordBreak: 'break-all' },
                   }, name)),
                   g.count > items.length
                     ? h('div', { style: { ...S.footnote, opacity: 0.7 } }, M(`还有 ${g.count - items.length} 项未列出`, `${g.count - items.length} more not listed`))
@@ -2632,7 +2763,7 @@ window.__ModuleLoader__.load({
       const overview = h('div', { style: { gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '8px' } },
         metrics,
         (localBlock || (data && Array.isArray(data.advice) && data.advice.length))
-          ? h('div', { style: { ...S.card, gap: '6px', padding: '10px 13px' } },
+          ? h('div', { style: { ...S.card, gap: '6px', padding: '10px 13px', className: 'cs-card' } },
             h('div', { style: S.cardHead },
               h('div', { style: S.cardTitle }, M('待办', 'To-do')),
               localBlock
@@ -2653,7 +2784,7 @@ window.__ModuleLoader__.load({
       )
 
       // 仓库路径可配：默认只读展示，点「修改」才编辑；没配过就强制停在编辑态（见 RepoCard）
-      const repoCard = data ? h(RepoCard, { data, onSaved: refresh }) : h('div', { style: S.card },
+      const repoCard = data ? h(RepoCard, { data, onSaved: refresh }) : h('div', { className: 'cs-card', style: S.card },
         h('div', { style: S.cardTitle }, M('本机仓库', 'Local repo')),
         h(Kv, { k: M('仓库路径', 'Repo path'), v: '…' }),
       )
@@ -2678,22 +2809,27 @@ window.__ModuleLoader__.load({
         ? h(ConflictCard, { data, onSaved: refresh })
         : null
 
-      return h('div', { style: S.page },
+      return h('div', { className: 'cs-scope cs-root', style: S.page },
         // 页头在滚动区之外：内容滚不到它上面，区标签跳转后的标题也只出现在它下面
         h('div', { style: S.pageHeaderWrap },
           h('div', { style: S.pageHeaderInner },
             h('div', { style: S.pageHeader },
             h('div', { style: S.pageHeaderMain },
+              h('div', { style: S.eyebrow },
+                h('span', { style: S.eyebrowText }, M('DSH 插件 · 配置同步', 'DSH PLUGIN · CONFIG SYNC')),
+                h('span', { style: S.eyebrowRule }, null),
+                h('span', { style: S.eyebrowTag }, 'v' + ((data && data.version && data.version.local) || '?')),
+              ),
               h('div', { style: S.pageTitleRow },
                 h('div', { style: S.pageTitle }, M('配置同步', 'Config Sync')),
                 h('div', { style: S.badgeGroup },
                   h('span', { style: S.badgeKey }, M('本机', 'local')),
-                  h('span', { style: chipStyle(summary.kind) }, chipLabel(summary.kind)),
+                  h('span', { className: 'cs-chip cs-chip-' + summary.kind, style: chipStyle(summary.kind) }, chipLabel(summary.kind)),
                 ),
                 // 云端状态：跟左边同一个徽标样式（绿=一致、红=不一致），挂载即查 + 每 2 分钟复查
                 h('div', { style: S.badgeGroup },
                   h('span', { style: S.badgeKey }, M('云端', 'cloud')),
-                  h('span', { style: chipStyle(cloudLine.kind) }, cloudLabel),
+                  h('span', { className: 'cs-chip cs-chip-' + cloudLine.kind, style: chipStyle(cloudLine.kind) }, cloudLabel),
                 ),
               ),
               // 一行元信息：版本与仓库位置。状态说明交给上面的徽标和下面的指标条，这里不再重复。
@@ -2732,7 +2868,7 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', style: S.btn, disabled: busy, onClick: doRefresh },
                 busy ? M('检测中…', 'Checking…') : M('重新检测', 'Re-check')),
             ),
-            h('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap', width: '100%', borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: '8px' } },
+            h('div', { style: { display: 'flex', gap: '0', flexWrap: 'wrap', width: '100%', borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: '4px' } },
               [
                 ['overview', M('概览', 'Overview')],
                 ...(conflictCard ? [['conflict', M('同步冲突', 'Sync conflicts')]] : []),
@@ -2751,12 +2887,15 @@ window.__ModuleLoader__.load({
                 const active = activeSection === sid
                 return h('button', {
                   key: sid, type: 'button',
+                  className: 'cs-tab' + (active ? ' cs-tab-active' : ''),
                   style: {
-                    fontSize: '12px', lineHeight: '18px', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer',
-                    border: '1px solid ' + (active ? 'var(--dsw-alias-toast-action)' : 'transparent'),
-                    background: active ? 'var(--dsw-alias-toast-action)' : 'transparent',
-                    color: active ? 'var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary))' : 'var(--dsw-alias-label-secondary)',
-                    fontWeight: active ? 600 : 400,
+                    fontFamily: 'var(--cs-font-mono)', fontSize: '10.5px', lineHeight: '18px',
+                    letterSpacing: '0.7px', textTransform: 'uppercase',
+                    padding: '4px 1px', marginRight: '12px', borderRadius: 0, cursor: 'pointer',
+                    border: 'none', borderBottom: '2px solid ' + (active ? 'hsl(var(--cs-brand) / 0.9)' : 'transparent'),
+                    background: 'transparent',
+                    color: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-tertiary)',
+                    fontWeight: active ? 700 : 500,
                   },
                   title: active ? M('当前所在区', 'Current section') : M('跳转到此区', 'Jump to section'),
                   onClick: () => {
@@ -2775,6 +2914,7 @@ window.__ModuleLoader__.load({
           h('div', { style: S.pageInner },
           toast
             ? h('div', {
+              className: 'cs-toast',
               style: {
                 position: 'fixed', left: '50%', top: '24px', transform: 'translateX(-50%)', zIndex: 9999,
                 padding: '10px 16px', borderRadius: '8px', fontSize: '13px', lineHeight: 1.5,
@@ -2913,7 +3053,7 @@ window.__ModuleLoader__.load({
       ]
       const shown = isEditing ? draft : detected
       const customKeys = shown ? Object.keys(shown.custom || {}) : []
-      const mono = { fontFamily: 'Consolas, ui-monospace, monospace', wordBreak: 'break-all' }
+      const mono = { fontFamily: 'var(--cs-font-mono)', wordBreak: 'break-all' }
 
       const rootRow = (row) => h('div', { key: row.key, style: S.kvRow },
         h('div', { style: S.kvKey }, row.label),
@@ -2939,7 +3079,7 @@ window.__ModuleLoader__.load({
       )
 
 
-      return h('div', { style: S.card },
+      return h('div', { className: 'cs-card', style: S.card },
         h('div', { style: S.cardHead },
           h('div', { style: S.cardTitle }, M('本机路径', 'Local paths')),
           h('div', { style: { flex: 1 } }, null),
@@ -3028,11 +3168,11 @@ window.__ModuleLoader__.load({
             const confItems = apItems.filter((it) => (it.scope || 'config') === 'config');
             const dataItems = apItems.filter((it) => it.scope === 'data');
             const rowOf = (it, i) => h('div', { key: `ap-${it.scope || 'c'}-${i}`, style: { display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap', paddingBottom: '2px' } },
-              h('div', { style: { ...S.hint, fontFamily: 'Consolas, ui-monospace, monospace', flex: '1 1 300px', wordBreak: 'break-all' } }, `· ${it.path}`),
+              h('div', { style: { ...S.hint, fontFamily: 'var(--cs-font-mono)', flex: '1 1 300px', wordBreak: 'break-all' } }, `· ${it.path}`),
               it.suggest
                 ? h(react.Fragment, null,
                   h('div', { style: S.hint }, '→'),
-                  h('div', { style: { ...S.hint, fontFamily: 'Consolas, ui-monospace, monospace', wordBreak: 'break-all' } }, it.suggest),
+                  h('div', { style: { ...S.hint, fontFamily: 'var(--cs-font-mono)', wordBreak: 'break-all' } }, it.suggest),
                   h('div', { style: S.footnote }, it.suggestNote || ''),
                   it.adopted
                     ? h('span', { style: { ...S.chip, color: 'var(--dsw-alias-state-success-primary, #2e7d32)' } }, M('已采纳', 'Accepted'))
@@ -3198,7 +3338,7 @@ window.__ModuleLoader__.load({
         onClick: () => setFilter(key),
       }, label)
 
-      return h('div', { style: S.card },
+      return h('div', { className: 'cs-card', style: S.card },
         h('div', { style: S.cardHead },
           h('div', { style: S.cardTitle }, M('问题反馈', 'Feedback')),
           h('div', { style: { flex: 1 } }, null),
@@ -3373,18 +3513,18 @@ window.__ModuleLoader__.load({
           data ? h('div', { style: S.sub }, `app ${data.version.local || '?'} / ${M('契约', 'contract')} ${data.version.contract || '?'}`) : null,
         ),
         h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 } },
-          h('span', { style: chipStyle(summary.kind) }, chipLabel(summary.kind)),
+          h('span', { className: 'cs-chip cs-chip-' + summary.kind, style: chipStyle(summary.kind) }, chipLabel(summary.kind)),
           h('button', { type: 'button', style: S.btn, onClick: () => setOpen((v) => !v) }, open ? M('收起', 'Collapse') : M('查看', 'View')),
           h('button', { type: 'button', style: S.btn, disabled: busy, onClick: refreshRemoteNow }, busy ? M('刷新中…', 'Refreshing…') : M('刷新', 'Refresh')),
         ),
       )
 
       if (!open) {
-        return h('div', { style: S.row }, head,
+        return h('div', { className: 'cs-scope', style: S.row }, head,
           err ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-error-primary)' } }, M(`读取失败：${err}`, `Read failed: ${err}`)) : null)
       }
 
-      return h('div', { style: S.row },
+      return h('div', { className: 'cs-scope', style: S.row },
         head,
         err ? h('div', { style: { ...S.hint, color: 'var(--dsw-alias-state-error-primary)' } }, M(`读取失败：${err}`, `Read failed: ${err}`)) : null,
         h('div', { style: S.panel },
@@ -3594,6 +3734,9 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
+      // 设计系统先落地：样式只插一次，卸载时不回收（重新挂载复用同一份）。
+      injectTheme()
+
       // 侧栏行 + 配对面板：两个 slot 必须各自 inject（嵌套），再在作用域里成对 register。
       // 只 inject('main') 就向 sidebar.panellist 注册是无效的——区域还没被注入，注册落不下去。
       try {

@@ -257,6 +257,18 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Panel visual refactor: magazine-editorial style (0.4.26)
+
+This release touches the **display layer only**. Interfaces, request bodies, state predicates, copy strings and section order are identical to 0.4.25 — zero behaviour change.
+
+- **No front-end dependencies**: styling is injected as a single `<style id="dsh-config-sync-theme">` block. `injectTheme()` is idempotent (returns immediately if the node already exists) and is called first thing in `apply()`. No Tailwind / shadcn / Google Fonts, no bundle growth.
+- **Masthead and chapter eyebrows**: the header gains an eyebrow line ("DSH PLUGIN · CONFIG SYNC ——— v0.4.26"); each section title gains a numbered eyebrow (`01 · Status`, `02 · Conflicts` … `10 · Feedback`) with a hairline rule on the right and a one-line hint.
+- **Jump bar becomes underlined tabs**: the pill buttons are now borderless tabs; the active section is marked with a 2px brand underline and bold weight, in a monospace uppercase face.
+- **Cards and motion**: cards lift 2px on hover with a gradient top hairline; sections enter with a staggered fade-up (55ms step); warn/error chips breathe slowly. All motion is disabled under `prefers-reduced-motion: reduce`.
+- **All colours come from host tokens**: only `--dsw-alias-*` plus two newly defined brand HSL variables, so light/dark themes follow automatically and no colours are hard-coded. Font stacks avoid Inter / Roboto / Arial.
+
+Verified: `node --check` on both files, `tools/selftest.mjs` **416 checks all OK / 0 failed / 0 skipped**, `tools/clientcheck.mjs` all green, and a deep render on a real React runtime (4 data shapes, 28 buttons, 5 inputs) with 0 failures. Both the light and dark panel render correctly.
+
 ### 0.4.23 (2026-11-28)
 
 - **Cross-machine hide alignment**: fixes "the other machine shows MnemonSkills sessions / untitled sessions after pulling". Mnemon background sessions (id prefix `mnemon-*`) and subagent sessions (bare uuid ids) are always registered in each machine's workspace.json and ride the sync to the peer. DSH view-collapses `origin=subagent` and blank sessions, but synced sessions may fall outside that boundary (e.g. mnemon-task carries turn/start; the first user message in the synced log defeats the blank check), so the peer workbench lists them. Pull now merges these ids into `global.archivedSessionIds` (the native DSH hide channel intercepting list/search/open): **session bodies still sync and stay, they are just hidden from the workbench**; main sessions (`session-` prefix) are untouched and locally hidden/archived sessions are preserved. Re-run "Pull now" after upgrading to align automatically.

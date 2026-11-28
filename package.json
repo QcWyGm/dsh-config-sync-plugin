@@ -1,6 +1,6 @@
 {
   "name": "dsh-config-sync-plugin",
-  "version": "0.4.25",
+  "version": "0.4.26",
   "type": "module",
   "description": "在 DSH 设置里查看 dsh-config 仓库与本机的同步状态，点立即推送/拉取/还原排队后由退出脚本执行。面板与文案跟随客户端语言（中文/English）。",
   "main": "./index.js",
