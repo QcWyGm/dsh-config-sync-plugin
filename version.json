@@ -3,7 +3,7 @@
   "tgz": "https://github.com/QcWyGm/dsh-config-sync-plugin/releases/download/v0.4.25/dsh-config-sync-plugin-0.4.25.tgz",
   "tgzBytes": 469053,
   "sha256": "465fce2ed34c5c32a4a188254743912115b2383029e0333834722d93c317e67b",
-  "npmSha256": "448e8f8902924cfe1338e78f4988e371c94b52bba2c5412bdd6f1808de114522",
+  "npmSha256": "da42fb252753493a47c9facc91557abda4491b4aa3e0c2d1b53a5e53b11159b9",
   "releasedAt": "2026-11-28",
   "notes": "取消「生成退出后执行的脚本」功能：移除 /config-sync/prepare 路由、前端动作卡与三份 .cmd 生成逻辑；推送/拉取/还原统一走「点按钮排队 → DSH 退出后 post-exit.ps1 自动执行 → 重启」的立即机制，其余功能不变。",
   "notesEn": "Removed the \"generate post-exit scripts\" feature: dropped the /config-sync/prepare route, the front-end action card and the three .cmd generators. Push/pull/restore now all use the queue → exit → post-exit.ps1 → restart flow; everything else is unchanged.",
