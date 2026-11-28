@@ -257,6 +257,15 @@ Two display fixes on top of 0.3.77:
 
 The "Plugin update" card now shows an **npm download URL** line with the actual fallback addresses (domestic mirror `registry.npmmirror.com` + official `registry.npmjs.org`). When the GitHub release download is unreachable (common in mainland China), the update package automatically falls back to npm. It is still verified against the authoritative sha256 in `version.json` — switching source never relaxes verification. The two sources back each other up: the mirror can briefly 404 during its first-sync window, and the official source takes over. The npm tarball is byte-identical to the GitHub release tgz (same sha256).
 
+### Three cross-machine sync defects fixed (0.4.27)
+
+All three were reported from a second machine, traced to their source, and fixed there:
+
+- **Plugin version rolled back after a pull (e.g. 0.4.26 -> 0.4.17)**: `capture.ps1` only normalised `link:` specs into npm versions, so a bare version such as `"0.4.17"` in `profile\package.json` was committed untouched; the self-update path (`install-restart`) also only overwrote the plugin directory and never wrote the version back into the profile dependency. That closed the loop: self-update to a new version -> next capture still publishes the old version -> the other machine pulls it and downgrades. capture now always normalises to the version actually installed under `node_modules\dsh-config-sync-plugin\package.json` (both `link:` and bare versions are rewritten), and `post-exit.ps1` update mode rewrites every profile dependency immediately after installing. The lockfile is deliberately not patched by hand (the stale integrity would fail pnpm verification); apply already falls back to `--no-frozen-lockfile`, which rewrites it correctly.
+- **"Unsynced files: N" with no detail lines**: the post-exit window summary only covered six notice kinds and missed the `landing` kind produced by the `apply` landing check. When landing was the only entry, the headline showed a count, the list was empty, and only the "list file: ..." footer remained - which reads as "the list file itself was not synced". The landing group is now included (after `context-state`), and the panel headline appends "N landing check(s) failed".
+- **"Landing check: storages/session_projcache/sessions" stuck forever**: the old predicate matched `\{\{(APP_ROOT|WORKSPACE_HOME|DSH_HOME)\}\}` against the **whole body** of each projcache JSON, but those files store conversation transcripts - pasted logs, `apply.ps1` comments and `selftest` output all legitimately contain `{{APP_ROOT}}`. That was a false positive. It now only inspects the `record.identity.cwd` field, so only genuine leftovers are reported.
+
+Verified: `selftest.mjs` 402 checks all pass (X=0 / SKIP=5), `clientcheck.mjs` green, all three ps1 files parse clean and keep their BOM.
 ### Panel visual refactor: magazine-editorial style (0.4.26)
 
 This release touches the **display layer only**. Interfaces, request bodies, state predicates, copy strings and section order are identical to 0.4.25 — zero behaviour change.

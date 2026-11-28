@@ -2230,6 +2230,9 @@ window.__ModuleLoader__.load({
         if (notices.byKind.skipped) parts.push(M(`${notices.byKind.skipped} 个被跳过`, `${notices.byKind.skipped} skipped`))
         if (notices.byKind['plugin-missing']) parts.push(M(`${notices.byKind['plugin-missing']} 个插件没装`, `${notices.byKind['plugin-missing']} plugin(s) missing`))
         if (notices.byKind['context-state']) parts.push(M(`${notices.byKind['context-state']} 个会话缺压缩状态`, `${notices.byKind['context-state']} session(s) without compaction state`))
+        // 0.4.27：landing（落地自检）也要进括注，否则标题只显示「上次同步有 1 项没处理完」，
+        // 读者不知道是哪一类，明细里的「[落地检查]」标签显得凭空出现。
+        if (notices.byKind.landing) parts.push(M(`${notices.byKind.landing} 项落地自检未通过`, `${notices.byKind.landing} landing check(s) failed`))
       }
       return h('div', {
         style: {
@@ -2244,10 +2247,12 @@ window.__ModuleLoader__.load({
         const fileish = (notices.byKind && (notices.byKind['too-large'] || notices.byKind.history || notices.byKind.failed || notices.byKind.skipped)) || 0
         const pluginN = (notices.byKind && notices.byKind['plugin-missing']) || 0
         const stateN = (notices.byKind && notices.byKind['context-state']) || 0
+        // 0.4.27：落地自检单独计一类，标题据此说人话（别把「cwd 占位符残留」说成「文件没进仓库」）
+        const landingN = (notices.byKind && notices.byKind.landing) || 0
         const headline = fileish
           ? M(`上次同步有 ${notices.total} 项没处理完${parts.length ? `（${parts.join('、')}）` : ''}`,
               `Last sync left ${notices.total} item(s) unresolved${parts.length ? ` (${parts.join(', ')})` : ''}`)
-          : (pluginN || stateN)
+          : (pluginN || stateN || landingN)
             ? M(`上次同步后有 ${notices.total} 项需要处理${parts.length ? `（${parts.join('、')}）` : ''}`,
                 `After the last sync ${notices.total} item(s) need attention${parts.length ? ` (${parts.join(', ')})` : ''}`)
             : M(`上次同步有 ${notices.total} 项没处理完`, `Last sync left ${notices.total} item(s) unresolved`)

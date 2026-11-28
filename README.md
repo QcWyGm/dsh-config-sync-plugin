@@ -277,6 +277,15 @@ pwsh -File runtime\sync.ps1 pull `
 
 「插件更新」卡新增一行 **npm 下载路径**，直接显示实际兜底地址（国内镜像 `registry.npmmirror.com` + 官方 `registry.npmjs.org` 两个源）。GitHub release 整段不通时（国内常见），更新包会自动兜底从 npm 下载；仍按 `version.json` 里的权威 sha256 校验，换源不放宽校验。两个源互为备份：镜像首发同步窗口期会短暂 404，官方源随即兜上。实测 npm tarball 与 GitHub release tgz 是同一份产物、sha256 完全一致。
 
+### 修复跨机同步三处缺陷（0.4.27）
+
+另一台机器实测报障后逐条定位，三处都已在源头修掉：
+
+- **拉取后插件版本回退（如 0.4.26 → 0.4.17）**：`capture.ps1` 原来只把 `link:` 依赖归一成 npm 版本，`profile\package.json` 里已经是裸版本号（`"0.4.17"`）时就原样入库；插件自更新（`install-restart`）也只覆盖插件目录、不回写 profile 的依赖声明。于是「自更新到新版 → 下次 capture 仍推旧版本 → 另一台 pull 装回旧版」形成闭环。现在 capture 一律按本机 `node_modules\dsh-config-sync-plugin\package.json` 的真实版本归一（`link:` 与裸版本号都改写），`post-exit.ps1` 的 update 模式装完立刻回写各 profile 的依赖版本。lockfile 不硬改（旧 integrity 与新版本不匹配会让 pnpm 校验失败），交给 apply 已有的 `--no-frozen-lockfile` 兜底重写。
+- **「未同步的文件 N 个」下面一条明细都没有**：`post-exit.ps1` 的窗口小结只列了六类 notice，漏了 `apply` 落地自检产生的 `landing` 类。只有 landing 一条时，标题打出数字、明细为空、只剩「清单文件：…」页脚，看起来像「清单文件本身没同步」。已补 landing 分组（排在 `context-state` 之后），面板标题括注也加上「N 项落地自检未通过」。
+- **「落地检查 storages/session_projcache/sessions」常驻且清不掉**：原判据拿 `\{\{(APP_ROOT|WORKSPACE_HOME|DSH_HOME)\}\}` 匹配 projcache 的**整个文件正文**，可这类 json 存的是会话对话内容——用户贴的日志、`apply.ps1` 的注释、`selftest` 的输出里都带 `{{APP_ROOT}}` 字样，属误报。现在只认 `record.identity.cwd` 字段里的占位符，真残留才会报。
+
+实测：`selftest.mjs` 402 项全过（X=0 / SKIP=5）、`clientcheck.mjs` 全通过、三个 ps1 语法与 BOM 全 OK。
 ### 面板视觉重构：杂志编辑风格（0.4.26）
 
 本版只动**显示层**，接口、请求体、状态判据、文案词条、分区顺序与 0.4.25 完全一致，行为零改动。
